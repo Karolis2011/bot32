@@ -23,8 +23,8 @@ get_commands() ->
 
 get_help(String) ->
 	LString = string:to_lower(String),
-	case lists:filter(fun({K,_,_}) -> LString == atom_to_list(K) end, get_food_options()) of
-		[{_, Options, Format}] ->
+	case lists:filter(fun({K,_}) -> LString == atom_to_list(K) end, get_food_options()) of
+		[{_, {Options, Format}}] ->
 			[
 				["Add with '", String, " add [key] [what]'."],
 				["Key can be: ", string:join(lists:map(fun atom_to_list/1, Options), ", "), $.],
@@ -85,7 +85,7 @@ delfood(#{reply:=RT, ping:=P, params:=[T,K|W]}) ->
 							NewList = lists:delete(Bin, Y),
 							config:set_value(data, [burger, list_to_atom(T), list_to_atom(K)], NewList),
 							"Removed.";
-						false -> "Entry Not found."
+						false -> "Entry not found."
 					end;
 				error -> "Key not found."
 			end;
