@@ -5,14 +5,6 @@
 -include("definitions.hrl").
 
 init() ->
-	config:start(config),
-	util:waitfor(config),
-	Server    = config:require_value(config, [core, server]),
-	Port      = config:require_value(config, [core, port]),
-	Transport = config:require_value(config, [core, transport]),
-	init(Server, Transport, Port).
-
-init(Server, Transport, Port) ->
 	case config:is_started(config) of
 		false -> config:start(config);
 		true -> ok
@@ -20,60 +12,62 @@ init(Server, Transport, Port) ->
 	config:start(data),
 	config:start_transient(temp),
 
-	case Transport of
-		ssl -> ssl:start();
-		_ -> ok
-	end,
-	{ok, Sock} = Transport:connect(Server, Port, ?SOCK_OPTIONS, 10000),
+	{ok, ConnPid} = gun:open("gateway.discord.gg", 443, #{protocols=>[http], retry=>0}),
+	MRef = monitor(process, ConnPid),
+	gun:ws_upgrade(ConnPid, "/?v=6&encoding=etf"),
 	register(core, self()),
-	logging:log(info, "CORE", "starting"),
-	loop(Sock, Transport),
-	logging:log(info, "CORE", "quitting"),
-	Transport:close(Sock),
-	case Transport of
-		ssl -> ssl:stop();
-		_ -> ok
-	end,
+	logging:log(info, ?MODULE, "starting"),
+	loop(ConnPid), %Remake everything related to this
+	logging:log(info, ?MODULE, "quitting"),
+	% Transport:close(Sock),
+	% ssl:stop(),
+	timer:sleep(1000),
+	gun:close(ConnPid),
 	case whereis(bot) of
 		undefined -> ok;
 		Pid -> Pid ! quit, ok
+	end,
+	case whereis(heartbeat) of
+		undefined -> ok;
+		HPid -> HPid ! quit, ok
 	end.
 
-loop(Sock, Transport) ->
+loop(ConnPid) ->
 	case receive
-		{ssl, Sock, RawMessage} -> self() ! {tcp, Sock, RawMessage}, ok;
-		{ssl_closed, Sock} -> self() ! {tcp_closed, Sock}, ok;
-		{ssl_error, Sock, Reason} -> self() ! {tcp_error, Sock, Reason}, ok;
-		{tcp, Sock, RawMessage} ->
-			Message = lists:reverse(tl(tl(lists:reverse(RawMessage)))),
-			case common:tcp_parse(Sock, Transport, Message) of
-				{irc, T} ->
-					case whereis(bot) of
-						undefined ->
-								case T of
-									{msg, {_User, _Channel, ["##SPAWN"]}} -> logging:log(info, "CORE", "Spawn request received, spawning!"), spawn(bot,init,[]), ok;
-									_ -> logging:log(error, "CORE", "could not find bot PID!")
-								end;
-						Pid -> Pid ! {irc, T}, ok
-					end;
-				T when is_atom(T) -> T;
-				T -> logging:log(error, "CORE", "unknown return value ~p from tcp_parse", [T])
-			end;
-		{tcp_closed, Sock} -> logging:log(error, "CORE", "Socket closed, quitting"), quit;
-		{tcp_error, Sock, Reason} -> logging:log(error, "CORE", "Socket error: ~p", [Reason]), quit;
-		{raw, Message} -> common:raw_send(Sock, Transport, Message), ok;
-		{irc, Message} -> common:tcp_send(Sock, Transport, Message), ok;
+		{gun_ws_upgrade, ConnPid, ok, Headers} ->
+			logging:log(info, ?MODULE, "WebSocks were upgraded"), ok;
+		{gun_response, ConnPid, _, _, Status, Headers} ->
+			logging:log(info, ?MODULE, "Server returned something"), ok;
+		{gun_error, ConnPid, StreamRef, Reason} ->
+			logging:log(error, ?MODULE, "There was gun error"), error;
+		{gun_ws, ConnPid, Frame} ->
+			case Frame of
+				{binary, BinData} ->
+					% logging:log(info, ?MODULE, "Got bin frame: ~p", [BinData]),
+					ETFFrame = binary_to_term(BinData),
+					% logging:log(info, ?MODULE, "Got etf frame: ~p", [ETFFrame]),
+					#{s:=LastS} = ETFFrame,
+					config:set_value(temp, [bot, last_s], LastS),
+					common:gateway_handle(ConnPid, ETFFrame);
+				{text, _} -> logging:log(info, ?MODULE, "Got frame: ~p", [Frame]);
+				X -> logging:log(error, ?MODULE, "Received unknown frame type: ~p", [X])
+			end, ok;
+		{sendheartbeat, _} ->
+			common:gateway_send(ConnPid, 1, config:require_value(temp, [bot, last_s]));
+		{'DOWN', Mref, process, ConnPid, Reason} ->
+			logging:log(info, ?MODULE, "Gun died: ~p", [Reason]), error;
 		T when is_atom(T) -> T;
-		X -> logging:log(error, "CORE", "Received unknown message ~p", [X])
+		X -> logging:log(error, ?MODULE, "Received unknown message ~p", [X])
 	after
-		30 * 1000 -> % 30 seconds without a message
-			common:raw_send(Sock, Transport, "PING bot32"), ok
+		30 * 1000 ->
+			% logging:log(info, ?MODULE, "30 seconds have passed"), ok
+			ok
 	end of
 		quit -> ok;
 		error -> error;
-		ok -> loop(Sock, Transport);
-		update -> core:loop(Sock, Transport);
+		ok -> loop(ConnPid);
+		update -> core:loop(ConnPid);
 		S ->
-			logging:log(error, "CORE", "unknown message ~p, continuing", [S]),
-			loop(Sock, Transport)
+			logging:log(error, ?MODULE, "unknown message ~p, continuing", [S]),
+			loop(ConnPid)
 	end.

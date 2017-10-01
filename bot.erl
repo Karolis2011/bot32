@@ -12,34 +12,31 @@ get_commands() ->
 init() ->
 	code:add_path("./mod/bin"),
 	register(bot, self()),
-	{SeedA,SeedB,SeedC}=now(),
+	{SeedA,SeedB,SeedC}=erlang:timestamp(),
 	random:seed(SeedA,SeedB,SeedC),
 
 	config:offer_value(config, [permissions], []),
-	config:offer_value(config, [bot, nick], "Bot32"),
-	config:offer_value(config, [bot, user], "Bot32"),
-	config:offer_value(config, [bot, mode], "0"),
-	config:offer_value(config, [bot, real], "Bot32"),
 	config:offer_value(config, [bot, prefix], "!"),
-	config:offer_value(config, [bot, channels], []),
 	config:offer_value(config, [bot, modules], []),
 	config:offer_value(config, [bot, on_join], []),
-	config:offer_value(config, [bot, pass], none),
 	config:offer_value(config, [bot, names], []),
+	config:offer_value(config, [bot, client_id], "client_id_here"),
+	config:offer_value(config, [bot, client_secret], "client_secret_here"),
+	config:offer_value(config, [bot, token], "bot_token_here"),
 
 	config:set_value(temp, [bot, commands], []),
 
 	util:waitfor(core), % wait for core to startup
-	case config:require_value(config, [bot, pass]) of
-		none -> ok;
-		Pass -> core ! {irc, {pass, Pass}}
-	end,
-	core ! {irc, {user, {config:require_value(config, [bot, user]), config:require_value(config, [bot, mode]), config:require_value(config, [bot, real])}}},
-	core ! {irc, {nick, config:require_value(config, [bot, nick])}},
+	% case config:require_value(config, [bot, pass]) of
+	% 	none -> ok;
+	% 	Pass -> core ! {irc, {pass, Pass}}
+	% end,
+	% core ! {irc, {user, {config:require_value(config, [bot, user]), config:require_value(config, [bot, mode]), config:require_value(config, [bot, real])}}},
+	% core ! {irc, {nick, config:require_value(config, [bot, nick])}},
 	receive
 		{irc, {numeric, {{rpl, welcome}, _}}} -> ok
 	after
-		10000 -> throw(connection_failed)
+		100000 -> throw(connection_failed)
 	end,
 	timer:sleep(100),
 	lists:foreach(fun(T) -> core ! {irc, T} end, config:require_value(config, [bot, on_join])),

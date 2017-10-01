@@ -24,19 +24,20 @@ do_main(Args) ->
 	loader:load(),
 	config:start(config),
 	util:waitfor(config),
-	{S,P,T} = get_spt(parse_args(Args)),
+	application:ensure_all_started(gun),
+	% {S,P,T} = get_spt(parse_args(Args)),
 
-	common:start_nospawn(S, T, P).
+	common:start_nospawn().
 
-get_spt({none,P,T}) -> get_spt({config:require_value(config, [core, server]),    P, T});
-get_spt({S,none,T}) -> get_spt({S, config:require_value(config, [core, port]),      T});
-get_spt({S,P,none}) -> get_spt({S, P, config:require_value(config, [core, transport])});
-get_spt(X) -> X.
+% get_spt({none,P,T}) -> get_spt({config:require_value(config, [core, server]),    P, T});
+% get_spt({S,none,T}) -> get_spt({S, config:require_value(config, [core, port]),      T});
+% get_spt({S,P,none}) -> get_spt({S, P, config:require_value(config, [core, transport])});
+% get_spt(X) -> X.
 
-parse_args(Args) -> parse_args(Args, {none, none, none}).
+% parse_args(Args) -> parse_args(Args, {none, none, none}).
 
-parse_args([[$-,$s|S]|Rst], {_,P,T}) when S /= [] -> parse_args(Rst,{S,P,T});
-parse_args([[$-,$p|P]|Rst], {S,_,T}) when P /= [] -> parse_args(Rst,{S,list_to_integer(P),T});
-parse_args([[$-,$t|T]|Rst], {S,P,_}) when T /= [] -> parse_args(Rst,{S,P,list_to_atom(T)});
-parse_args([Arg|_], _) -> throw({invalid_arg,Arg});
-parse_args([], SPT) -> SPT.
+% parse_args([[$-,$s|S]|Rst], {_,P,T}) when S /= [] -> parse_args(Rst,{S,P,T});
+% parse_args([[$-,$p|P]|Rst], {S,_,T}) when P /= [] -> parse_args(Rst,{S,list_to_integer(P),T});
+% parse_args([[$-,$t|T]|Rst], {S,P,_}) when T /= [] -> parse_args(Rst,{S,P,list_to_atom(T)});
+% parse_args([Arg|_], _) -> throw({invalid_arg,Arg});
+% parse_args([], SPT) -> SPT.

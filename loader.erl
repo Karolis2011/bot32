@@ -3,6 +3,9 @@
 -export([load/0, compile_to/2]).
 
 load() ->
+	code:add_path("./_build/default/lib/gun/ebin"),
+	code:add_path("./_build/default/lib/cowlib/ebin"),
+	code:add_path("./_build/default/lib/ranch/ebin"),
 	code:add_path("./bin"),
 	compile_to("./bin", [
 			bot,
@@ -12,7 +15,7 @@ load() ->
 			config,
 			core,
 			json,
-			lambda,
+			%lambda, % Missing core module?
 			logging,
 			mochijson,
 			permissions,

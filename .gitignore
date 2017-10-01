@@ -4,3 +4,5 @@ mod/bin/
 logs/
 config/
 data/
+tmp/
+_build/

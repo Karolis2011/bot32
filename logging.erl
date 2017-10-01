@@ -77,7 +77,7 @@ loop(RLog, RLogDate, Muted) ->
 		stop -> ok
 	end.
 
-timestamp() -> format_time(calendar:now_to_local_time(now())).
+timestamp() -> format_time(calendar:now_to_local_time(erlang:timestamp())).
 
 format_time({{Y, M, D}, {H, Mi, S}}) -> io_lib:format("~b-~2..0b-~2..0b ~2..0b:~2..0b:~2..0b", [Y, M, D, H, Mi, S]).
 
