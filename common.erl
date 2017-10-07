@@ -51,13 +51,19 @@ start() -> spawn(?MODULE, start_nospawn, []).
 
 start_nospawn() ->
 	spawn(bot, init, []),
+	timer:sleep(300),
 	core:init().
 
+gateway_handle(ConnPid, #{op:=0, t:=EventName, d:=Data}) ->
+	case whereis(bot) of
+		undefined -> logging:log(error, ?MODULE, "Bot PID isn't found."), error;
+		Pid -> Pid ! {event, EventName, Data}, ok
+	end;
 gateway_handle(ConnPid, #{op:=11}) -> % Heartbeat ACK, do nothing, TODO: kill connection if no ACK is sent for 2x BeatInterval
 	ok;
-gateway_handle(ConnPid, #{d:=Snum, op:=1}) -> % Heartbeat payload, have to send back Heartbeat ACK.
+gateway_handle(ConnPid, #{op:=1, d:=Snum}) -> % Heartbeat payload, have to send back Heartbeat ACK.
 	gateway_send(ConnPid, 11, nil);
-gateway_handle(ConnPid, #{d:=#{heartbeat_interval:=BeatInterval}, op:=10}) -> % Hello payload, starts Heartbeat and sends Identify, TODO: Implement Resume
+gateway_handle(ConnPid, #{op:=10, d:=#{heartbeat_interval:=BeatInterval}}) -> % Hello payload, starts Heartbeat and sends Identify, TODO: Implement Resume
 	spawn(common, heartbeat_timer, [BeatInterval]),
 	gateway_send(ConnPid, 2, #{<<"token">>=>list_to_binary(config:require_value(config, [bot, token])),
 		<<"compress">>=>false,
@@ -72,7 +78,7 @@ gateway_handle(ConnPid, #{d:=#{heartbeat_interval:=BeatInterval}, op:=10}) -> % 
 		<<"shard">>=>[0,1]
 		});
 gateway_handle(ConnPid, Event) -> % Unknown payload received, all payloads should be handled in some way.
-		logging:log(error, ?MODULE, "unhandled event: ~p", [Event]).
+		logging:log(error, ?MODULE, "Unhandled payload: ~p", [Event]).
 
 discord_request(get, Url) ->
 	{ok, ConnPid} = gun:open("discordapp.com", 443, #{protocols=>[http], retry=>0}),

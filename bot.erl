@@ -15,6 +15,7 @@ init() ->
 	{SeedA,SeedB,SeedC}=erlang:timestamp(),
 	random:seed(SeedA,SeedB,SeedC),
 
+	util:waitfor(core),
 	config:offer_value(config, [permissions], []),
 	config:offer_value(config, [bot, prefix], "!"),
 	config:offer_value(config, [bot, modules], []),
@@ -25,8 +26,9 @@ init() ->
 	config:offer_value(config, [bot, token], "bot_token_here"),
 
 	config:set_value(temp, [bot, commands], []),
+	config:set_value(temp, [bot, guilds], []),
 
-	util:waitfor(core), % wait for core to startup
+	 % wait for core to startup
 	% case config:require_value(config, [bot, pass]) of
 	% 	none -> ok;
 	% 	Pass -> core ! {irc, {pass, Pass}}
@@ -34,14 +36,10 @@ init() ->
 	% core ! {irc, {user, {config:require_value(config, [bot, user]), config:require_value(config, [bot, mode]), config:require_value(config, [bot, real])}}},
 	% core ! {irc, {nick, config:require_value(config, [bot, nick])}},
 	receive
-		{irc, {numeric, {{rpl, welcome}, _}}} -> ok
+		{event, 'READY', Data} -> handle_gateway_event('READY', Data), ok
 	after
-		100000 -> throw(connection_failed)
+		3000 -> throw(connection_failed)
 	end,
-	timer:sleep(100),
-	lists:foreach(fun(T) -> core ! {irc, T} end, config:require_value(config, [bot, on_join])),
-	timer:sleep(100), % wait for server auth
-	lists:foreach(fun(T) -> core ! {irc, {join, T}} end, config:require_value(config, [bot, channels])),
 	logging:log(info, ?MODULE, "starting"),
 
 	config:set_value(temp, [bot, commands], []),
@@ -58,23 +56,18 @@ reinit(_) ->
 	loop(),
 	logging:log(info, ?MODULE, "stopping").
 
-notify_error(msg, {#user{nick=N}, Channel, _}) ->
-	case config:get_value(config, [bot, nick]) of
-		Channel -> {irc, {msg, {N,             "Error!" }}};
-		_ ->       {irc, {msg, {Channel, [N, ": Error!"]}}}
-	end;
-notify_error(X, Y) -> logging:log(error, ?MODULE, "~p : ~p", [X,Y]).
-
 loop() ->
 	case receive
+		{event, EventName, Data} -> handle_gateway_event(EventName, Data);
 		{ircfwd, T} -> {irc, T};
 		{irc, {Type, Params}} ->
-			logging:log(recv, bot, "{~p, ~p}", [Type, Params]),
-			case catch handle_irc(Type, Params) of
-				{'EXIT', {Reason, Stack}} -> logging:log(error, ?MODULE, "handle_irc errored ~p (~p), continuing", [Reason, Stack]), notify_error(Type, Params);
-				{'EXIT', Term} ->  logging:log(error, ?MODULE, "handle_irc exited ~p, continuing",  [Term]), notify_error(Type, Params);
-				T -> T
-			end;
+			% logging:log(recv, bot, "{~p, ~p}", [Type, Params]),
+			% % case catch handle_irc(Type, Params) of
+			% % 	{'EXIT', {Reason, Stack}} -> logging:log(error, ?MODULE, "handle_irc errored ~p (~p), continuing", [Reason, Stack]), notify_error(Type, Params);
+			% % 	{'EXIT', Term} ->  logging:log(error, ?MODULE, "handle_irc exited ~p, continuing",  [Term]), notify_error(Type, Params);
+			% % 	T -> T
+			% % end;
+			ok;
 		T when is_atom(T) -> T;
 		{T, K} when is_atom(T) -> {T, K}
 %		T -> logging:log(error, ?MODULE, "unknown receive ~p, continuing", [T])
@@ -99,60 +92,78 @@ loop() ->
 		S -> logging:log(error, ?MODULE, "unknown code ~p, continuing", [S]), bot:loop()
 	end.
 
-check_utf8(<<>>) -> true;
-check_utf8(<<_/utf8, B/binary>>) -> check_utf8(B);
-check_utf8(_) -> false.
+handle_gateway_event('READY', #{session_id:=Session,user:=#{bot:=IsBot, username:=BotUsername, id:=BotId}}) ->
+	config:set_value(temp, [bot, username], BotUsername),
+	config:set_value(temp, [bot, id], BotId), ok;
+handle_gateway_event('GUILD_CREATE', GuildObject) ->
+	#{id:=GuildID} = GuildObject,
+	NewGuilds = lists:foldl(fun ({GId, GObj}, Guilds) ->
+		case orddict:find(GId, Guilds) of
+			{ok, Guild} -> Guilds;
+			error -> orddict:store(GId, GObj, Guilds)
+		end
+	end, [{GuildID, GuildObject}], config:get_value(config, [bot, guilds], [])),
+	config:set_value(temp, [bot, guilds], NewGuilds);
+handle_gateway_event('MESSAGE_CREATE', Data) ->
+	#{<<"channel_id">>:=ChannelID, <<"author">>:=User} = Data;
+	
+handle_gateway_event(EventName, Data) ->
+	logging:log(error, ?MODULE, "Unhandled event ~p: ~p", [EventName, Data]), ok.
 
-handle_irc(ctcp, {action, Chan, User=#user{nick=Nick}, Tokens}) ->
-	case permissions:hasperm(User, Chan, ignore) of
-		true ->
-			logging:log(ignore, ?MODULE, "Ignoring ~s!~s@~s ACTION: ~s.", [Nick, User#user.username, User#user.host, string:join(Tokens, " ")]),
-			ok;
-		false ->
-			distribute_event(ctcp, {action, Chan, User, Tokens})
-	end;
-
-handle_irc(msg, Params={User=#user{nick=Nick}, Channel, Tokens}) ->
-	case lists:all(fun(T) -> check_utf8(list_to_binary(T)) end, Tokens) of
-		false -> logging:log(utf8, ?MODULE, "Ignoring '~s' due to invalid UTF-8", [string:join(Tokens, " ")]);
-		true ->
-	case permissions:hasperm(User, ignore) of
-		true ->
-			logging:log(ignore, ?MODULE, "Ignoring ~s!~s@~s: ~s.", [Nick, User#user.username, User#user.host, string:join(Tokens, " ")]),
-			distribute_event(msg_ignored, {User, Channel, Tokens}),
-			ok;
-		false ->
-			distribute_event(msg, Params),
-			case config:require_value(config, [bot, nick]) of
-				Channel ->
-					case permissions:hasperm(User, admin) of
-						true -> ok;
-						_ -> permissions:message_all_rank(["Query from ",Nick], string:join(Tokens, " "), pmlog)
-					end;
-				_ -> ok
-			end
-	end
-	end;
-
-handle_irc(nick, {U=#user{nick=OldNick}, NewNick}) ->
-	case config:get_value(config, [bot, nick]) of
-		OldNick -> config:set_value(config, [bot, nick], NewNick);
-		_ ->
-			distribute_event(nick, {U, NewNick})
-	end;
-
-handle_irc(notice, {Src, Trg, Msg}) ->
-	logging:log(info, ?MODULE, "NOTICE received from ~p to ~s: ~s", [Src, Trg, string:join(Msg, " ")]),
-	ok;
-
-handle_irc(numeric, {{rpl,away},_}) -> ok;
-handle_irc(numeric, {{A,B},Params}) ->
-	logging:log(info, ?MODULE, "Numeric received: ~p_~p ~s", [A,B,string:join(Params," ")]),
-	distribute_event(numeric, {{A,B}, Params});
-
-handle_irc(Type, Params) ->
-	distribute_event(Type, Params).
-
+% check_utf8(<<>>) -> true;
+% check_utf8(<<_/utf8, B/binary>>) -> check_utf8(B);
+% check_utf8(_) -> false. c
+%
+% handle_irc(ctcp, {action, Chan, User=#user{nick=Nick}, Tokens}) ->
+% 	case permissions:hasperm(User, Chan, ignore) of
+% 		true ->
+% 			logging:log(ignore, ?MODULE, "Ignoring ~s!~s@~s ACTION: ~s.", [Nick, User#user.username, User#user.host, string:join(Tokens, " ")]),
+% 			ok;
+% 		false ->
+% 			distribute_event(ctcp, {action, Chan, User, Tokens})
+% 	end;
+%
+% handle_irc(msg, Params={User=#user{nick=Nick}, Channel, Tokens}) ->
+% 	case lists:all(fun(T) -> check_utf8(list_to_binary(T)) end, Tokens) of
+% 		false -> logging:log(utf8, ?MODULE, "Ignoring '~s' due to invalid UTF-8", [string:join(Tokens, " ")]);
+% 		true ->
+% 	case permissions:hasperm(User, ignore) of
+% 		true ->
+% 			logging:log(ignore, ?MODULE, "Ignoring ~s!~s@~s: ~s.", [Nick, User#user.username, User#user.host, string:join(Tokens, " ")]),
+% 			distribute_event(msg_ignored, {User, Channel, Tokens}),
+% 			ok;
+% 		false ->
+% 			distribute_event(msg, Params),
+% 			case config:require_value(config, [bot, nick]) of
+% 				Channel ->
+% 					case permissions:hasperm(User, admin) of
+% 						true -> ok;
+% 						_ -> permissions:message_all_rank(["Query from ",Nick], string:join(Tokens, " "), pmlog)
+% 					end;
+% 				_ -> ok
+% 			end
+% 	end
+% 	end;
+%
+% handle_irc(nick, {U=#user{nick=OldNick}, NewNick}) ->
+% 	case config:get_value(config, [bot, nick]) of
+% 		OldNick -> config:set_value(config, [bot, nick], NewNick);
+% 		_ ->
+% 			distribute_event(nick, {U, NewNick})
+% 	end;
+%
+% handle_irc(notice, {Src, Trg, Msg}) ->
+% 	logging:log(info, ?MODULE, "NOTICE received from ~p to ~s: ~s", [Src, Trg, string:join(Msg, " ")]),
+% 	ok;
+%
+% handle_irc(numeric, {{rpl,away},_}) -> ok;
+% handle_irc(numeric, {{A,B},Params}) ->
+% 	logging:log(info, ?MODULE, "Numeric received: ~p_~p ~s", [A,B,string:join(Params," ")]),
+% 	distribute_event(numeric, {{A,B}, Params});
+%
+% handle_irc(Type, Params) ->
+% 	distribute_event(Type, Params).
+%
 distribute_event(Type, Params) ->
 	lists:foreach(fun(Module) ->
 			case catch util:call_or(Module, handle_event, [Type, Params], null) of
