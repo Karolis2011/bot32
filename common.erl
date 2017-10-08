@@ -56,7 +56,15 @@ start_nospawn() ->
 
 gateway_handle(ConnPid, #{op:=0, t:=EventName, d:=Data}) ->
 	case whereis(bot) of
-		undefined -> logging:log(error, ?MODULE, "Bot PID isn't found."), error;
+		undefined -> 
+			case EventName of
+				'MESSAGE_CREATE' ->
+					case Data of
+						#{<<"content">>:=<<"##SPAWN">>} -> logging:log(info, "CORE", "Spawn request received, spawning!"), spawn(bot,reinit,[]), ok;
+						_ -> logging:log(error, ?MODULE, "Bot PID isn't found."), error
+					end;
+				_ -> logging:log(error, ?MODULE, "Bot PID isn't found."), error
+			end;
 		Pid -> Pid ! {event, EventName, Data}, ok
 	end;
 gateway_handle(ConnPid, #{op:=11}) -> % Heartbeat ACK, do nothing, TODO: kill connection if no ACK is sent for 2x BeatInterval

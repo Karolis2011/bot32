@@ -17,7 +17,6 @@ init() ->
 
 	util:waitfor(core),
 	config:offer_value(config, [permissions], []),
-	config:offer_value(config, [bot, prefix], "!"),
 	config:offer_value(config, [bot, modules], []),
 	config:offer_value(config, [bot, on_join], []),
 	config:offer_value(config, [bot, names], []),
@@ -50,7 +49,8 @@ init() ->
 	loop(),
 	logging:log(info, ?MODULE, "stopping").
 
-reinit(_) ->
+reinit(_) -> reinit().
+reinit() ->
 	register(bot, self()),
 	logging:log(info, ?MODULE, "starting"),
 	loop(),
@@ -94,18 +94,33 @@ loop() ->
 
 handle_gateway_event('READY', #{session_id:=Session,user:=#{bot:=IsBot, username:=BotUsername, id:=BotId}}) ->
 	config:set_value(temp, [bot, username], BotUsername),
-	config:set_value(temp, [bot, id], BotId), ok;
-handle_gateway_event('GUILD_CREATE', GuildObject) ->
-	#{id:=GuildID} = GuildObject,
-	NewGuilds = lists:foldl(fun ({GId, GObj}, Guilds) ->
-		case orddict:find(GId, Guilds) of
-			{ok, Guild} -> Guilds;
-			error -> orddict:store(GId, GObj, Guilds)
-		end
-	end, [{GuildID, GuildObject}], config:get_value(config, [bot, guilds], [])),
-	config:set_value(temp, [bot, guilds], NewGuilds);
+	config:set_value(temp, [bot, id], BotId),
+	config:set_value(temp, [bot, names], [BotUsername, io_lib:format("<@!~p>", [BotId])]), ok;
+handle_gateway_event('GUILD_CREATE', GuildObject = #{id:=GuildID, channels:=ChannelList}) ->
+	config:set_value(temp, [bot, guilds, GuildID], GuildObject),
+	lists:foreach(fun (Channel = #{id:=ChannelID}) ->
+		config:set_value(temp, [bot, chanmap, ChannelID], GuildID),
+		config:set_value(temp, [bot, channels, ChannelID], Channel)
+	end, ChannelList),
+	ok;
 handle_gateway_event('MESSAGE_CREATE', Data) ->
-	#{<<"channel_id">>:=ChannelID, <<"author">>:=User} = Data;
+	#{<<"channel_id">>:=ChannelID, <<"author">>:=User} = Data,
+	case config:get_value(temp, [bot, channels, ChannelID]) of
+		'$none' -> error;
+		Channel ->
+			case config:get_value(temp, [bot, chanmap, ChannelID]) of
+				'$none' -> error;
+				GuildID ->
+					case config:get_value(temp, [bot, guilds]) of
+						'$none' -> error;
+						Guild ->
+							#{<<"content">>:=Message} = Data,
+							MessageTokens = binary:split(Message, <<" ">>),
+							distribute_event(newMessage, {Data, MessageTokens, User, Channel, Guild}), ok
+					end
+			end
+	end,
+	logging:log(info, ?MODULE, "Got new message : ~p", [Data]);
 	
 handle_gateway_event(EventName, Data) ->
 	logging:log(error, ?MODULE, "Unhandled event ~p: ~p", [EventName, Data]), ok.

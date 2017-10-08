@@ -3,15 +3,15 @@
 
 -include("definitions.hrl").
 
-handle_event(msg, Params = {User=#user{nick=Nick}, Channel, Tokens}) ->
+handle_event(newMessage, {Data, Tokens, User = #{<<"username">>:=Username, <<"id">>:=UserId}, Channel = #{<<"id">>:=ChannelId}, Guild}) ->
 	case parse_command(Tokens) of
 		{RCommand, RArguments, Selector} ->
-			logging:log(info, ?MODULE, "Command in ~s from ~s: ~s~s ~s", [Channel, Nick, RCommand, if Selector /= [] -> [$@|Selector]; true -> [] end, string:join(RArguments, " ")]),
+			logging:log(info, ?MODULE, "Command in ~s, ~s from ~s: ~s~s ~s", [ChannelId, Username, RCommand, if Selector /= [] -> [$@|Selector]; true -> [] end, string:join(RArguments, " ")]),
 			{Command, Arguments} = lists:foldl(fun(Module, {C,A}) ->
 					util:call_or(Module, pre_command, [C, A], {C, A})
 				end, {RCommand, RArguments}, config:require_value(config, [bot, modules])),
-			Rank = permissions:rankof(User, Channel),
-			case handle_command(Rank, User, Channel, Command, Arguments, Selector) of
+			Rank = permissions:rankof(User, Channel, Guild),
+			case handle_command(Rank, User, Channel, Guild, Command, Arguments, Selector) of
 				{irc, Result} ->
 					core ! {irc, Result};
 				{'EXIT', Term} ->
@@ -19,38 +19,32 @@ handle_event(msg, Params = {User=#user{nick=Nick}, Channel, Tokens}) ->
 				_ -> ok
 			end;
 		notcommand ->
-			RC = reply_channel(Nick, Channel),
-			RP = reply_ping(Nick, RC),
+			RP = reply_ping(User, Channel),
 			lists:foreach(fun(Module) ->
-					util:call_or(Module, do_extras, [Tokens, RC, RP], null),
-					util:call_or(Module, handle_event, [msg_nocommand, Params], null)
+					% util:call_or(Module, do_extras, [Tokens, RC, RP], null),
+					% util:call_or(Module, handle_event, [msg_nocommand, Params], null)
+					ok
 				end, config:require_value(config, [bot, modules]))
 	end;
 handle_event(_, _) -> ok.
 
 parse_command([]) -> notcommand;
 parse_command(Params) ->
-	<<FirstChar/utf8, Rest/binary>> = list_to_binary(hd(Params)),
-	case lists:member(FirstChar, config:require_value(config, [bot, prefix])) of
-		true when Rest /= <<>> -> desel(binary_to_list(Rest), tl(Params));
-		true -> notcommand;
-		false ->
-			if
-				length(Params) > 1 ->
-					BotAliases = [config:require_value(config, [bot, nick]) | config:require_value(config, [bot, names])],
-					case lists:any(fun(Alias) ->
-								R = util:regex_escape(Alias),
-								re:run(hd(Params), <<"^", R/binary, "($|[^a-zA-Z0-9])">>, [caseless, {capture, none}]) == match
-							end, BotAliases) of
-						true ->
-							case tl(Params) of
-								[] -> {[], [], []};
-								_ -> desel(hd(tl(Params)), tl(tl(Params)))
-							end;
-						false -> notcommand
+	if
+		length(Params) > 1 ->
+			BotAliases = [config:require_value(temp, [bot, names])],
+			case lists:any(fun(Alias) ->
+						R = util:regex_escape(Alias),
+						re:run(hd(Params), <<"^", R/binary, "($|[^a-zA-Z0-9])">>, [caseless, {capture, none}]) == match
+					end, BotAliases) of
+				true ->
+					case tl(Params) of
+						[] -> {[], [], []};
+						_ -> desel(hd(tl(Params)), tl(tl(Params)))
 					end;
-				true -> notcommand
-			end
+				false -> notcommand
+			end;
+		true -> notcommand
 	end.
 
 desel(A, B) ->
@@ -123,16 +117,15 @@ get_args([integer|SRst], [T|ARst], X) ->
 	end;
 get_args([Unk|_], _, _) -> {error, io_lib:format("Unknown or invalid argument type ~p (bot bug)", [Unk])}.
 
-handle_command(Ranks, User, Channel, Command, Arguments, Selector) ->
-	RC = reply_channel(User#user.nick, Channel),
-	RP = reply_ping(User#user.nick, RC),
+handle_command(Ranks, User, Channel, Guild, Command, Arguments, Selector) ->
+	RP = reply_ping(User, Channel),
 	Result = lists:foldl(fun
 			(Rank, unhandled) ->
 				case case config:get_value(temp, [bot, commands, Rank, string:to_lower(Command)]) of
 					{_Mod, Func, ArgSpec} ->
 						case get_args(ArgSpec, Arguments) of
 							{error, T} ->
-								core ! {irc, {msg, {RC, [RP, "Error: ",T]}}},
+								core ! {irc, {msg, {replayChannel, [RP, "Error: ",T]}}},
 								error;
 							X ->
 								{Func, X}
@@ -144,7 +137,7 @@ handle_command(Ranks, User, Channel, Command, Arguments, Selector) ->
 						ParamMap = #{
 								origin => User,
 								nick => User#user.nick,
-								reply => RC,
+								reply => replayChannel,
 								ping => RP,
 								params => Args,
 								selector => Selector,
@@ -160,9 +153,8 @@ handle_command(Ranks, User, Channel, Command, Arguments, Selector) ->
 			case alternate_commands([Command | Arguments]) of
 				false -> ok;
 				R ->
-					RC = reply_channel(User#user.nick, Channel),
-					RP = reply_ping(User#user.nick, RC),
-					{irc, {msg, {RC, [RP, R]}}}
+					RP = reply_ping(User, Channel),
+					{irc, {msg, {replayChannel, [RP, R]}}}
 			end;
 		_ -> Result
 	end.
