@@ -59,29 +59,12 @@ reinit() ->
 loop() ->
 	case receive
 		{event, EventName, Data} -> handle_gateway_event(EventName, Data);
-		{ircfwd, T} -> {irc, T};
-		{irc, {Type, Params}} ->
-			% logging:log(recv, bot, "{~p, ~p}", [Type, Params]),
-			% % case catch handle_irc(Type, Params) of
-			% % 	{'EXIT', {Reason, Stack}} -> logging:log(error, ?MODULE, "handle_irc errored ~p (~p), continuing", [Reason, Stack]), notify_error(Type, Params);
-			% % 	{'EXIT', Term} ->  logging:log(error, ?MODULE, "handle_irc exited ~p, continuing",  [Term]), notify_error(Type, Params);
-			% % 	T -> T
-			% % end;
-			ok;
 		T when is_atom(T) -> T;
 		{T, K} when is_atom(T) -> {T, K}
 %		T -> logging:log(error, ?MODULE, "unknown receive ~p, continuing", [T])
 	end of
-		{request_execute, {Pid, Fun}} ->
-			Pid ! {execute_done, catch Fun()},
-			bot:loop();
-		{request_execute, Fun} ->
-			catch Fun(),
-			bot:loop();
-		{multi, List} -> lists:foreach(fun(T) -> core ! T end, List), bot:loop();
-		{irc, What} -> core ! {irc,What}, bot:loop();
-		quit -> ok;
-		error -> error;
+		quit -> logging:log(info, ?MODULE, "Got quit command, quiting"), ok;
+		error -> logging:log(info, ?MODULE, "Got error command, quiting"), error;
 		ok -> bot:loop();
 		update ->
 			spawn(common,purge_call,[bot,reinit,[]]),
@@ -95,7 +78,8 @@ loop() ->
 handle_gateway_event('READY', #{session_id:=Session,user:=#{bot:=IsBot, username:=BotUsername, id:=BotId}}) ->
 	config:set_value(temp, [bot, username], BotUsername),
 	config:set_value(temp, [bot, id], BotId),
-	config:set_value(temp, [bot, names], [BotUsername, io_lib:format("<@!~p>", [BotId])]), ok;
+	config:set_value(temp, [bot, names], [binary_to_list(BotUsername), io_lib:format("<@~p>", [BotId])]), 
+	ok;
 handle_gateway_event('GUILD_CREATE', GuildObject = #{id:=GuildID, channels:=ChannelList}) ->
 	config:set_value(temp, [bot, guilds, GuildID], GuildObject),
 	lists:foreach(fun (Channel = #{id:=ChannelID}) ->
@@ -103,25 +87,34 @@ handle_gateway_event('GUILD_CREATE', GuildObject = #{id:=GuildID, channels:=Chan
 		config:set_value(temp, [bot, channels, ChannelID], Channel)
 	end, ChannelList),
 	ok;
-handle_gateway_event('MESSAGE_CREATE', Data) ->
-	#{<<"channel_id">>:=ChannelID, <<"author">>:=User} = Data,
-	case config:get_value(temp, [bot, channels, ChannelID]) of
-		'$none' -> error;
-		Channel ->
-			case config:get_value(temp, [bot, chanmap, ChannelID]) of
+handle_gateway_event('CHANNEL_CREATE', Channel = #{id:=ChannelID}) ->
+	config:set_value(temp, [bot, channels, ChannelID], Channel), ok;
+handle_gateway_event('MESSAGE_CREATE', Data = #{channel_id:=ChannelID, author:=User = #{id:=UserID}, type:=Type, content:=Message}) ->
+	MessageTokens = string:tokens(binary_to_list(Message), " "),
+	BotId = config:get_value(temp, [bot, id]),
+	case UserID of
+		BotId -> ok;
+		_ -> 
+		case Type of
+			0 -> 
+			case config:get_value(temp, [bot, channels, ChannelID]) of
 				'$none' -> error;
-				GuildID ->
-					case config:get_value(temp, [bot, guilds]) of
-						'$none' -> error;
-						Guild ->
-							#{<<"content">>:=Message} = Data,
-							MessageTokens = binary:split(Message, <<" ">>),
-							distribute_event(newMessage, {Data, MessageTokens, User, Channel, Guild}), ok
+				Channel ->
+					case config:get_value(temp, [bot, chanmap, ChannelID]) of
+						'$none' -> 
+							distribute_event(newMessage, {Data, MessageTokens, User, Channel, none});
+						GuildID ->
+							case config:get_value(temp, [bot, guilds, GuildID]) of
+								'$none' -> error;
+								Guild ->
+									distribute_event(newMessage, {Data, MessageTokens, User, Channel, Guild})
+							end
 					end
-			end
-	end,
-	logging:log(info, ?MODULE, "Got new message : ~p", [Data]);
-	
+			end;
+			OT -> logging:log(info, ?MODULE, "Got unknown type (~p) message, ignoring", [OT]), ok
+		end
+	end;
+handle_gateway_event('TYPING_START', _) -> ok;
 handle_gateway_event(EventName, Data) ->
 	logging:log(error, ?MODULE, "Unhandled event ~p: ~p", [EventName, Data]), ok.
 
@@ -182,8 +175,8 @@ handle_gateway_event(EventName, Data) ->
 distribute_event(Type, Params) ->
 	lists:foreach(fun(Module) ->
 			case catch util:call_or(Module, handle_event, [Type, Params], null) of
-				{'EXIT', X} -> logging:log(error, ?MODULE, "~p:handle_event(~p, ~p) exited with ~p", [Module, Type, Params, X]);
-				{'EXIT', RS, X} -> logging:log(error, ?MODULE, "~p:handle_event(~p, ~p) errored with ~p (~p)", [Module, Type, Params, X, RS]);
+				{'EXIT', X} -> logging:log(error, ?MODULE, "~p:handle_event(~p, ~p) exited with ~p", [Module, Type, "<Prameters hidden>", X]);
+				{'EXIT', RS, X} -> logging:log(error, ?MODULE, "~p:handle_event(~p, ~p) errored with ~p (~p)", [Module, Type, "<Prameters hidden>", X, RS]);
 				_ -> ok
 			end
 		end, config:require_value(config, [bot, modules])).

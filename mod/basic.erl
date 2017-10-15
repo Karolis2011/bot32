@@ -7,11 +7,8 @@ get_commands() ->
 		{"pong", fun pong/1, user},
 		{"rand", fun rand/1, [integer], user},
 		{"pick", fun pick/1, [list], user},
-		{"dance", fun dance/1, user},
 		{"rot13", fun rot_thirteen/1, [{"string", long}], user},
 		{"rot", fun rot_n/1, [integer, {"string", long}], user},
-		{"colors", fun colors/1, user},
-		{"colours", fun colors/1, user},
 		{"coin", fun coin/1, user}
 	].
 
@@ -50,70 +47,23 @@ collapse_or_string([T|L], COpt, Options) -> collapse_or_string(L, [COpt,32|T], O
 i2l(T, S) when T < 10 -> [S] ++ integer_to_list(T);
 i2l(T, _) -> integer_to_list(T).
 
-colors(#{reply:=ReplyTo, ping:=Ping}) -> {irc, {msg, {ReplyTo, [Ping,
-		lists:map(fun(X) -> [3,i2l(X,$0),i2l(X,$ )] end, lists:seq(0,15)),
-		lists:map(fun(X) -> [3,$,,i2l(X,$0),i2l(X,$ )] end, lists:seq(0,15))
-	]}}}.
+ping(#{channel:=Channel = #{id:=ChannelID}, ping:=Ping}) -> {respond, {message, ChannelID, [Ping, "Pong!"]}}.
+pong(#{channel:=Channel = #{id:=ChannelID}, ping:=Ping}) -> {respond, {message, ChannelID, [Ping, "Ping!"]}}.
 
-ping(#{reply:=ReplyTo, ping:=Ping}) -> {irc, {msg, {ReplyTo, [Ping, "Pong!"]}}}.
-pong(#{reply:=ReplyTo, ping:=Ping}) -> {irc, {msg, {ReplyTo, [Ping, "Ping!"]}}}.
-
-rand(#{reply:=ReplyTo, ping:=Ping, params:=[Num]}) ->
+rand(#{channel:=Channel = #{id:=ChannelID}, ping:=Ping, params:=[Num]}) ->
 	case Num > 0 of
-		true -> {irc, {msg, {ReplyTo, [Ping, erlang:integer_to_list(random:uniform(Num))]}}};
-		false -> {irc, {msg, {ReplyTo, [Ping, "Please pass a positive integer."]}}}
+		true -> {respond, {message, ChannelID, [Ping, erlang:integer_to_list(random:uniform(Num))]}};
+		false -> {respond, {message, ChannelID, [Ping, "Please pass a positive integer."]}}
 	end.
 
-pick(#{reply:=ReplyTo, ping:=Ping, params:=[List]}) ->
-	{irc, {msg, {ReplyTo, [Ping, util:pick_rand(List)]}}}.
-
-dancereply() ->
-	[
-		[":D/--<", ":D|--<", ":D\\--<"],
-		[[ping, "No."]],
-		[[ping, "What sort of bot do you think I am?!"]],
-		["<(^_^<)", "(>^_^)>", "<(^_^<)"]
-	].
-danceweights(Nick) ->
-	H = h(Nick),
-	put(dance_rng, {H rem 1000000, ((H div 1000000) rem 1000000), H div 1000000000000}),
-	lists:map(fun(_) ->
-			{N, State} = random:uniform_s(10, get(dance_rng)),
-			put(dance_rng, State),
-			N
-		end, dancereply()).
-danceweighted(Nick) ->
-	lists:zip(danceweights(Nick), dancereply()).
+pick(#{channel:=Channel = #{id:=ChannelID}, ping:=Ping, params:=[List]}) ->
+	{respond, {message, ChannelID, [Ping, util:pick_rand(List)]}}.
 
 h(Nick) -> h(Nick, 0).
 h([],T) -> T;
 h([H|R],T) -> h(R,T*37+H).
 
-dance(#{nick:=Nick, reply:=ReplyTo, ping:=Ping}) ->
-	W = danceweighted(Nick),
-	Total = lists:foldl(fun({K,_},A) -> K+A end, 0, W),
-	Select = random:uniform(Total),
-	case catch lists:foldl(fun
-			({K,T},A) when A+K >= Select -> throw(T);
-			({K,_},A) -> A+K
-		end, 0, W) of
-		Reply when is_list(Reply) ->
-			lists:foreach(fun
-					(T) -> core ! {irc, {msg, {ReplyTo, lists:map(fun(ping)->Ping;(X)->X end, T)}}}
-				end, Reply);
-		X -> io:fwrite("got ~p?\n", [X])
-	end.
-%	if
-%		T > 80 -> {multi, [
-%			          {irc, {msg, {ReplyTo, ":D/--<"}}},
-%			          {irc, {msg, {ReplyTo, ":D|--<"}}},
-%			          {irc, {msg, {ReplyTo, ":D\\--<"}}}
-%		          ]};
-%		T > 40 -> {irc, {msg, {ReplyTo, [Ping, "No."]}}};
-%		true -> {irc, {msg, {ReplyTo, [Ping, "What sort of bot do you think I am?!"]}}}
-%	end.
-
-rot_thirteen(#{reply:=ReplyTo, ping:=Ping, params:=[String]}) ->
+rot_thirteen(#{channel:=Channel = #{id:=ChannelID}, ping:=Ping, params:=[String]}) ->
 	Rotated = lists:map(fun(T) ->
 		if
 			T >= $A andalso T =< $M -> T+13;
@@ -122,20 +72,20 @@ rot_thirteen(#{reply:=ReplyTo, ping:=Ping, params:=[String]}) ->
 			T >= $n andalso T =< $z -> T-13;
 			true -> T
 		end end, String),
-	{irc, {msg, {ReplyTo, [Ping, Rotated]}}}.
+	{respond, {message, ChannelID, [Ping, Rotated]}}.
 
 mod(X,Y) when X > 0 -> X rem Y;
 mod(X,Y) when X < 0 -> Y + X rem Y;
 mod(0,_) -> 0.
 
-rot_n(#{reply:=ReplyTo, ping:=Ping, params:=[N, String]}) ->
+rot_n(#{channel:=Channel = #{id:=ChannelID}, ping:=Ping, params:=[N, String]}) ->
 	Rotated = lists:map(fun(T) ->
 		if
 			T >= $A andalso T =< $Z -> $A + mod(T - $A + N, 26);
 			T >= $a andalso T =< $z -> $a + mod(T - $a + N, 26);
 			true -> T
 		end end, String),
-	{irc, {msg, {ReplyTo, [Ping, Rotated]}}}.
+	{respond, {message, ChannelID, [Ping, Rotated]}}.
 
-coin(#{reply:=RT, ping:=P}) ->
-	{irc, {msg, {RT, [P, lists:nth(random:uniform(2), ["Heads!", "Tails!"])]}}}.
+coin(#{channel:=Channel = #{id:=ChannelID}, ping:=Ping}) ->
+	{respond, {message, ChannelID, [Ping, lists:nth(random:uniform(2), ["Heads!", "Tails!"])]}}.

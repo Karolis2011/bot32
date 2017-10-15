@@ -319,3 +319,27 @@ groupstrs(Func, _,   [     ], _,   Str) -> Func(Str);
 groupstrs(Func, Len, List   , Sep, Str) when length(Str) >= Len -> Func(Str), groupstrs(Func, Len, List, Sep, "");
 groupstrs(Func, Len, [Hd|Tl], Sep, [ ]) -> groupstrs(Func, Len, Tl, Sep, Hd);
 groupstrs(Func, Len, [Hd|Tl], Sep, Str) -> groupstrs(Func, Len, Tl, Sep, Str ++ Sep ++ Hd).
+
+to_atom(List) when is_list(List) ->
+	list_to_atom(List);
+to_atom(Binary) when is_binary(Binary) ->
+	binary_to_atom(Binary, utf8);
+to_atom(Atom) when is_atom(Atom) ->
+	Atom.
+
+map_keys_to_atoms(Map) when is_map(Map) ->
+	maps:fold(fun (Key, Value, NMap) ->
+			NMap#{to_atom(Key) => map_keys_to_atoms(Value)}
+	end, #{}, Map);
+map_keys_to_atoms(List) when is_list(List) ->
+	lists:foldl(fun (Value, NList) ->
+		lists:append(NList, [map_keys_to_atoms(Value)])
+	end, [], List);
+map_keys_to_atoms(Value) ->
+	Value.
+
+mochi_to_map({struct, Value}) when is_list(Value) ->
+	lists:foldl(fun ({Key, Val}, NM) ->
+		NM#{Key=>mochi_to_map(Val)}
+	end, #{}, Value);
+mochi_to_map(Value) -> Value.

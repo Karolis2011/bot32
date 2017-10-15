@@ -9,7 +9,7 @@ get_commands() ->
 		{"c", fun c/1, host}
 	].
 
-c(#{reply:=Reply, ping:=Ping, params:=Params, selector:=Selector}) ->
+c(#{channel:=Channel = #{id:=ChannelID}, ping:=Ping, params:=Params, selector:=Selector}) ->
 	C = case Selector of
 		"data" -> data;
 		"temp" -> temp;
@@ -25,12 +25,12 @@ c(#{reply:=Reply, ping:=Ping, params:=Params, selector:=Selector}) ->
 									Path = erl_parse:normalise(PA),
 									Val = erl_parse:normalise(VA),
 									config:set_value(C, Path, Val),
-									core ! {irc, {msg, {Reply, [Ping, io_lib:format("Set ~p:~p to ~500p.", [C, Path, Val])]}}};
+									core ! {respond, {message, ChannelID, [Ping, io_lib:format("Set ~p:~p to ~500p.", [C, Path, Val])]}};
 								PA = {cons,_,_,_} ->
 									Path = erl_parse:normalise(PA),
-									core ! {irc, {msg, {Reply, [Ping, io_lib:format("Value of ~p:~p: ~500p", [C, Path, config:get_value(C, Path)])]}}};
+									core ! {respond, {message, ChannelID, [Ping, io_lib:format("Value of ~p:~p: ~500p", [C, Path, config:get_value(C, Path)])]}};
 								X ->
-									core ! {irc, {msg, {Reply, [Ping, io_lib:format("Unknown abstract expression ~500p", [X])]}}}
+									core ! {respond, {message, ChannelID, [Ping, io_lib:format("Unknown abstract expression ~500p", [X])]}}
 							end
 						end, ExprList);
 				{error, {_,_,Desc}} ->
@@ -40,32 +40,32 @@ c(#{reply:=Reply, ping:=Ping, params:=Params, selector:=Selector}) ->
 			{err, io_lib:format("Error: ~p / ~p", [Info, Location])}
 	end of
 		{err, T} ->
-			core ! {irc, {msg, {Reply, [Ping, T]}}},
+			core ! {respond, {message, ChannelID, [Ping, T]}},
 			ok;
 		_ -> ok
 	end.
 
-cget(#{reply:=RT, ping:=RP, params:=Path}) ->
+cget(#{channel:=Channel = #{id:=ChannelID}, ping:=RP, params:=Path}) ->
 	case parse(lists:flatten(string:join(Path, " "))) of
 		{ok, TruePath} ->
-			{irc, {msg, {RT, [RP, io_lib:format("~p", [config:get_value(config, TruePath)])]}}};
+			{respond, {message, ChannelID, [RP, io_lib:format("~p", [config:get_value(config, TruePath)])]}};
 		{err, T} ->
-			{irc, {msg, {RT, [RP, T]}}}
+			{respond, {message, ChannelID, [RP, T]}}
 	end.
 
-cset(#{reply:=RT, ping:=RP, params:=Params}) ->
+cset(#{channel:=Channel = #{id:=ChannelID}, ping:=RP, params:=Params}) ->
 	{Path,[_|Value]} = lists:splitwith(fun(T)->T/=":" end, Params),
 	case parse(lists:flatten(string:join(Path, " "))) of
-		{err, T} -> {irc, {msg, {RT, [RP, T]}}};
+		{err, T} -> {respond, {message, ChannelID, [RP, T]}};
 		{ok, TruePath} ->
 			case parse(lists:flatten(string:join(Value, " "))) of
 				{ok, [Val]} ->
 					config:set_value(config, TruePath, Val),
-					{irc, {msg, {RT, [RP, io_lib:format("Set ~p to ~p.", [TruePath, Val])]}}};
+					{respond, {message, ChannelID, [RP, io_lib:format("Set ~p to ~p.", [TruePath, Val])]}};
 				{ok, _} ->
-					{irc, {msg, {RT, [RP, "Provide a single value to set!"]}}};
+					{respond, {message, ChannelID, [RP, "Provide a single value to set!"]}};
 				{err, T} ->
-					{irc, {msg, {RT, [RP, T]}}}
+					{respond, {message, ChannelID, [RP, T]}}
 			end
 	end.
 

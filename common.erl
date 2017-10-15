@@ -55,17 +55,18 @@ start_nospawn() ->
 	core:init().
 
 gateway_handle(ConnPid, #{op:=0, t:=EventName, d:=Data}) ->
+	AData = util:map_keys_to_atoms(Data),
 	case whereis(bot) of
 		undefined -> 
 			case EventName of
 				'MESSAGE_CREATE' ->
-					case Data of
-						#{<<"content">>:=<<"##SPAWN">>} -> logging:log(info, "CORE", "Spawn request received, spawning!"), spawn(bot,reinit,[]), ok;
+					case AData of
+						#{content:=<<"##SPAWN">>} -> logging:log(info, "CORE", "Spawn request received, spawning!"), spawn(bot,reinit,[]), ok;
 						_ -> logging:log(error, ?MODULE, "Bot PID isn't found."), error
 					end;
 				_ -> logging:log(error, ?MODULE, "Bot PID isn't found."), error
 			end;
-		Pid -> Pid ! {event, EventName, Data}, ok
+		Pid -> Pid ! {event, EventName, AData}, ok
 	end;
 gateway_handle(ConnPid, #{op:=11}) -> % Heartbeat ACK, do nothing, TODO: kill connection if no ACK is sent for 2x BeatInterval
 	ok;
@@ -88,10 +89,28 @@ gateway_handle(ConnPid, #{op:=10, d:=#{heartbeat_interval:=BeatInterval}}) -> % 
 gateway_handle(ConnPid, Event) -> % Unknown payload received, all payloads should be handled in some way.
 		logging:log(error, ?MODULE, "Unhandled payload: ~p", [Event]).
 
-discord_request(get, Url) ->
+discord_request(Type, Url, Data, Callback) -> spawn(?MODULE, discord_request, [Type, Url, Data, Callback, nospawn]).
+discord_request(post, Url, Data, Callback, nospawn) when is_function(Callback, 1) ->
+	{ok, ConnPid} = gun:open("discordapp.com", 443, #{protocols=>[http], retry=>0}),
+	StreamRef = gun:post(ConnPid, ["/api/v6", Url], [
+		{<<"Authorization">>, ["Bot ", config:require_value(config, [bot, token])]},
+		{<<"content-type">>, "application/json"}
+	], json:write(Data)),
+	receive
+		{gun_data, ConnPid, StreamRef, nofin, ResponseData} ->
+			Callback(json:parse(ResponseData));
+		{gun_down, ConnPid, Protocol} ->
+			ok;
+		{'DOWN', MRef, process, ConnPid, Reason} ->
+			error
+	after 1000 ->
+		err
+	end;
+discord_request(get, Url, Data, Callback, nospawn) when is_function(Callback, 1) ->
 	{ok, ConnPid} = gun:open("discordapp.com", 443, #{protocols=>[http], retry=>0}),
 	StreamRef = gun:get(ConnPid, ["/api/v6", Url], [
-		{<<"Authorization">>, ["Bot ", config:require_value(config, [bot, token])]}
+		{<<"Authorization">>, ["Bot ", config:require_value(config, [bot, token])]},
+		{<<"content-type">>, "application/json"}
 	]),
 	receive
 		{gun_data, ConnPid, StreamRef, fin, Data} ->
@@ -106,7 +125,6 @@ gateway_send(ConnPid, OpCode, Data) ->
 	gateway_send(ConnPid, #{<<"op">>=>OpCode, <<"d">>=>Data}).
 
 gateway_send(ConnPid, Frame) ->
-	logging:log(info, ?MODULE, "Data sent: ~p", [Frame]),
 	gun:ws_send(ConnPid, {binary, term_to_binary(Frame)}).
 
 heartbeat_timer(BeatInterval) ->

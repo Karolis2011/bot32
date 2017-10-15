@@ -55,6 +55,24 @@ loop(ConnPid) ->
 			common:gateway_send(ConnPid, 1, config:require_value(temp, [bot, last_s]));
 		{'DOWN', Mref, process, ConnPid, Reason} ->
 			logging:log(info, ?MODULE, "Gateway connection died: ~p", [Reason]), error;
+		{respond, {message, ChannelID, Message}} ->
+			common:discord_request(post, io_lib:format("/channels/~p/messages", [ChannelID]), {struct, [{"content", lists:flatten(Message)}]}, fun (_) -> ok end), ok;
+		{respond, {dm, UserID, Message}} ->
+			logging:log(info, ?MODULE, "Sending DM to ~p: ~s", [UserID, Message]),
+			case config:get_value(temp, [bot, userDM, UserID]) of
+				'$none' -> 
+					common:discord_request(post, "/users/@me/channels", {struct, [{"recipient_id", UserID}]}, fun ({struct, Params}) ->
+						case lists:keyfind("id", 1, Params) of
+							{"id", SChannelID} ->
+								{ChannelID, _} = string:to_integer(SChannelID),
+								config:set_value(temp, [bot, userDM, UserID], ChannelID),
+								core ! {respond, {message, ChannelID, Message}}, ok;
+							false -> logging:log(error, ?MODULE, "Didn't find channel ID"), error
+						end
+					end);
+				ChannelID -> self() ! {respond, {message, ChannelID, Message}}
+			end, ok;
+			% logging:log(info, ?MODULE, "Won't send DM to ~p : ~p", [UserID, Message]);
 		T when is_atom(T) -> T;
 		X -> logging:log(error, ?MODULE, "Gateway received unknown message ~p", [X])
 	after

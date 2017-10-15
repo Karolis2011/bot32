@@ -11,74 +11,74 @@ get_commands() ->
 		{"recompile_static", fun recompile_static/1, host}
 	].
 
-recompile_static(#{reply:=Reply, ping:=Ping, params:=Params}) ->
+recompile_static(#{channel:=Channel = #{id:=ChannelID}, ping:=Ping, params:=Params}) ->
 	case Params of
-		[] -> {irc, {msg, {Reply, [Ping, "Provide one or more core Erlang modules to recompile!"]}}};
+		[] -> core ! {respond, {message, ChannelID, [Ping, "Provide one or more core Erlang modules to recompile!"]}};
 		_ ->
 			lists:foreach(fun(T) ->
 					Mod = list_to_atom(T),
 					code:purge(Mod),
 					case compile:file(Mod, [{outdir,"./bin"}, return, report]) of
 						{ok, _, []} ->
-							core ! {irc, {msg, {Reply, [Ping, "Done."]}}};
+							core ! {respond, {message, ChannelID, [Ping, "Done."]}};
 						{ok, _, Warns} ->
 							W = length(Warns),
-							core ! {irc, {msg, {Reply, [Ping, io_lib:format("~s: ~b warning~s", [T, W, util:s(W)])]}}};
+							core ! {respond, {message, ChannelID, [Ping, io_lib:format("~s: ~b warning~s", [T, W, util:s(W)])]}};
 						{error, Errs, Warns} ->
 							W = length(Warns),
 							E = length(Errs),
-							core ! {irc, {msg, {Reply, [Ping, io_lib:format("~s: ~b warning~s, ~b error~s", [T, W, util:s(W), E, util:s(E)])]}}}
+							core ! core ! {respond, {message, ChannelID, [Ping, io_lib:format("~s: ~b warning~s, ~b error~s", [T, W, util:s(W), E, util:s(E)])]}}
 					end,
 					code:load_file(Mod)
 				end, Params),
 			ok
 	end.
 
-modules(#{reply:=Reply, ping:=Ping}) ->
-	{irc, {msg, {Reply, [Ping,
+modules(#{channel:=Channel = #{id:=ChannelID}, ping:=Ping}) ->
+	{respond, {message, ChannelID, [Ping,
 			string:join(lists:map(fun atom_to_list/1,
 					lists:sort(config:require_value(config, [bot, modules]))),
-					" ")]}}}.
+					" ")]}}.
 
-load(#{reply:=Reply, ping:=Ping, params:=Params}) ->
+load(#{channel:=Channel = #{id:=ChannelID}, ping:=Ping, params:=Params}) ->
 	case Params of
-		[] -> {irc, {msg, {Reply, [Ping, "Provide one or more modules to load."]}}};
+		[] -> {respond, {message, ChannelID, [Ping, "Provide one or more modules to load."]}};
 		Mods ->
 			Status = load_modules(lists:map(fun erlang:list_to_atom/1, Mods)),
-			{irc, {msg, {Reply, [Ping, Status]}}}
+			{respond, {message, ChannelID, [Ping, Status]}}
 	end.
 
-drop(#{reply:=Reply, ping:=Ping, params:=Params}) ->
+drop(#{channel:=Channel = #{id:=ChannelID}, ping:=Ping, params:=Params}) ->
 	case Params of
-		[] -> {irc, {msg, {Reply, [Ping, "Provide one or more modules to drop, or '*' to drop all."]}}};
+		[] -> {respond, {message, ChannelID, [Ping, "Provide one or more modules to drop, or '*' to drop all."]}};
 		["*"] ->
 			Status = drop_modules(config:require_value(config, [bot, modules])),
-			{irc, {msg, {Reply, [Ping, Status]}}};
+			{respond, {message, ChannelID, [Ping, Status]}};
 		Mods ->
 			Status = drop_modules(lists:map(fun erlang:list_to_atom/1, Mods)),
-			{irc, {msg, {Reply, [Ping, Status]}}}
+			{respond, {message, ChannelID, [Ping, Status]}}
 	end.
 
-reload(#{reply:=Reply, ping:=Ping, params:=Params}) ->
+reload(#{channel:=Channel = #{id:=ChannelID}, ping:=Ping, params:=Params}) ->
 	case Params of
-		[] -> {irc, {msg, {Reply, [Ping, "Provide one or more modules to reload, or '*' to reload all."]}}};
+		[] -> {respond, {message, ChannelID, [Ping, "Provide one or more modules to reload, or '*' to reload all."]}};
 		["*"] ->
 			Status = reload_modules(config:require_value(config, [bot, modules])),
-			{irc, {msg, {Reply, [Ping, Status]}}};
+			{respond, {message, ChannelID, [Ping, Status]}};
 		Mods ->
 			Status = reload_modules(lists:map(fun erlang:list_to_atom/1, Mods)),
-			{irc, {msg, {Reply, [Ping, Status]}}}
+			{respond, {message, ChannelID, [Ping, Status]}}
 	end.
 
-recompile(#{reply:=Reply, ping:=Ping, params:=Params}) ->
+recompile(#{channel:=Channel = #{id:=ChannelID}, ping:=Ping, params:=Params}) ->
 	case Params of
-		[] -> {irc, {msg, {Reply, [Ping, "Provide one or more modules to recompile, or '*' to reload all."]}}};
+		[] -> {respond, {message, ChannelID, [Ping, "Provide one or more modules to recompile, or '*' to reload all."]}};
 		["*"] ->
 			Status = recompile_modules(config:require_value(config, [bot, modules])),
-			{irc, {msg, {Reply, [Ping, Status]}}};
+			{respond, {message, ChannelID, [Ping, Status]}};
 		Mods ->
 			Status = recompile_modules(lists:map(fun erlang:list_to_atom/1, Mods)),
-			{irc, {msg, {Reply, [Ping, Status]}}}
+			{respond, {message, ChannelID, [Ping, Status]}}
 	end.
 
 load_modules(List) -> lists:map(fun load_module/1, List).
