@@ -15,9 +15,9 @@ get_help("dm") ->
 	];
 get_help(_) -> unhandled.
 
-dm(#{reply:=Reply, ping:=Ping, params:=[String]}) ->
+dm(#{channel:=#{id:=ChannelID}, ping:=Ping, params:=[String]}) ->
 	case re:run(String, "##|include", [{capture,none}]) of
-		match -> {irc, {msg, {Reply, [Ping, "You attempted to use either ## or include; both are blocked for security reasons."]}}};
+		match -> {respond, {message, ChannelID, [Ping, "You attempted to use either ## or include; both are blocked for security reasons."]}};
 		nomatch ->
 			Parts = re:split(String, ";;;", [{return, list}]),
 			case Parts of
@@ -39,7 +39,7 @@ dm(#{reply:=Reply, ping:=Ping, params:=[String]}) ->
 			file:write_file(["dm/", UseMD5, ".dme"], File),
 			spawn(fun() ->
 				Output = util:safe_os_cmd(["./dm_compile_run.sh ", UseMD5]),
-				core ! {irc, {msg, {Reply, [Ping, string:join(string:tokens(Output, "\n"), ";  ")]}}}
+				core ! {respond, {message, ChannelID, [Ping, string:join(string:tokens(Output, "\n"), ";  ")]}}
 			end),
 			ok
 	end.

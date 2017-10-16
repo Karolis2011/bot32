@@ -184,17 +184,46 @@ players(ChannelID, _, _, S, P, _, Name) ->
 			end
 	end.
 
-manifest(ChannelID, _, UserID, S, P, _, Name) ->
-	case byond:send(S, P, "manifest") of
+manifest(ChannelID, _, UserID, S, P, ID, Name) ->
+		case config:get_value(config, [?MODULE, key, list_to_binary(io_lib:format("~s:~p", [S, P]))]) of
+				'$none' -> 
+					case byond:send(S, P, "manifest") of
+						{error, X} -> core ! {respond, {message, ChannelID, io_lib:format("~sError: ~p", [Name, X])}};
+						[] -> core ! {respond, {message, ChannelID, [Name, "Manifest is empty"]}};
+						Dict ->
+							Message = lists:foldl(fun ({Dept, Players}, PMsg) ->
+								[PMsg, "**", Dept, "**:\r\n", lists:foldl(fun ({Char, Title}, PPMsg) ->
+									[PPMsg, Char, " - _", Title, "_\r\n"]
+								end, "", byond:params2dict(Players)), "\r\n"]
+							end, [Name, "Manifest:\r\n"], Dict),
+							Lengths = lists:foldl(fun ({Dept, Players}, Last) -> 
+								[Last, " ", Dept, ": ", io_lib:format("~p", [lists:foldl(fun (_, PLast) -> 
+									PLast + 1 
+								end, 0, byond:params2dict(Players))]), ";"] 
+							end, "", Dict),
+							core ! {respond, {dm, UserID, [Message]}},
+							core ! {respond, {message, ChannelID, [Name, "Manifest lengths:", Lengths]}}
+					end;
+				Key -> manifest(ChannelID, none, UserID, S, P, ID, Name, Key, json)
+			end.
+manifest(ChannelID, _, UserID, S, P, _, Name, Key, json) ->
+	Req = [{"query", "get_manifest"}, {"auth", Key}],
+	case byond:send(S, P, json:write({struct, Req}), false) of
 		{error, X} -> core ! {respond, {message, ChannelID, io_lib:format("~sError: ~p", [Name, X])}};
-		[] -> core ! {respond, {message, ChannelID, [Name, "Manifest is empty"]}};
-		Dict ->
-			Size = lists:map(fun({Dept,Players}) ->
-					Manif = lists:map(fun({K,V}) -> [K, ": ", V] end, byond:params2dict(Players)),
-					core ! {respond, {dm, UserID, [Name, Dept, $:, $ , string:join(Manif, "; ")]}},
-					io_lib:format("~s: ~b", [Dept, length(Manif)])
-				end, Dict),
-			core ! {respond, {message, ChannelID, [Name, "Manifest lengths: ", string:join(Size, "; ")]}}
+		JData ->
+			case util:mochi_to_map(json:parse(JData)) of
+				#{"statuscode":=200, "data":=Data} ->
+					Message = maps:fold(fun (Dept, Players, PMsg) ->
+						[PMsg, "**", Dept, "**:\r\n", maps:fold(fun (Char, Title, PPMsg) ->
+							[PPMsg, Char, " - _", Title, "_\r\n"]
+						end, "", Players), "\r\n"]
+					end, [Name, "Manifest:\r\n"], Data),
+					Lengths = maps:fold(fun (Dept, Players, Last) -> [Last, " ", Dept, ": ", io_lib:format("~p", [maps:fold(fun (_, _, PLast) -> PLast + 1 end, 0, Players)]), ";"] end, "", Data),
+					core ! {respond, {dm, UserID, [Message]}},
+					core ! {respond, {message, ChannelID, [Name, "Manifest lengths:", Lengths]}};
+				#{"statuscode":=Code, "response":=Response} ->
+					core ! {respond, {message, ChannelID, io_lib:format("~sError: (~p) ~s", [Name, Code, Response])}}
+			end
 	end.
 
 safeget(Dict, Key) ->
