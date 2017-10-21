@@ -22,38 +22,32 @@ get_commands() ->
 		{"lsym", fun lsym/1, host}
 	].
 
-bash(#{reply:=Reply, ping:=Ping, params:=[Param]}) ->
+bash(#{channel:=#{id:=ChannelID}, ping:=Ping, params:=[Param]}) ->
 	util:unicode_os_putenv("args", Param),
-	{irc, {msg, {Reply, io_lib:format("~s~500p", [Ping, util:safe_os_cmd("bash -c \"$args\"")])}}}.
+	{respond, {message, ChannelID, io_lib:format("~s~1500s", [Ping, util:safe_os_cmd("bash -c \"$args\"")])}}.
 
-py(#{reply:=Reply, ping:=Ping, params:=[Param]}) ->
+py(#{channel:=#{id:=ChannelID}, ping:=Ping, params:=[Param]}) ->
 	util:unicode_os_putenv("script", Param),
-	{irc, {msg, {Reply, io_lib:format("~s~500p", [Ping, util:safe_os_cmd("python -c \"$script\"")])}}}.
+	{respond, {message, ChannelID, io_lib:format("~s~1500s", [Ping, util:safe_os_cmd("python -c \"$script\"")])}}.
 
-bashl(#{reply:=Reply, ping:=Ping, params:=[Param]}) ->
+bashl(#{channel:=#{id:=ChannelID}, ping:=Ping, params:=[Param]}) ->
 	util:unicode_os_putenv("args", Param),
 	RRaw = util:safe_os_cmd("bash -c \"$args\""),
-	lines2channel(Reply, Ping, RRaw).
+	lines2channel(ChannelID, Ping, RRaw).
 
-pyl(#{reply:=Reply, ping:=Ping, params:=[Param]}) ->
+pyl(#{channel:=#{id:=ChannelID}, ping:=Ping, params:=[Param]}) ->
 	util:unicode_os_putenv("script", Param),
 	RRaw = util:safe_os_cmd("python -c \"$script\""),
-	lines2channel(Reply, Ping, RRaw).
+	lines2channel(ChannelID, Ping, RRaw).
 
-lines2channel(Reply, Ping, RRaw) ->
+lines2channel(ChannelID, Ping, RRaw) ->
 	R = lists:flatmap(fun
 			(10) -> [10];
 			(9) -> "    ";
 			(T) when T < 32 -> [];
 			(T) -> [T]
 		end, RRaw),
-	lists:foreach(fun
-			(T) ->
-				case string:strip(T) of
-					[] -> ok;
-					_ -> core ! {irc, {msg, {Reply, [Ping, T]}}}
-				end
-		end, string:tokens(R, "\n")).
+	{respond, {message, ChannelID, [Ping, R]}}.
 
 
 eecho(Params=#{params:=Tokens}) ->
@@ -61,14 +55,14 @@ eecho(Params=#{params:=Tokens}) ->
 	NewParams = string:tokens(lists:flatten(["\"", string:join(Tokens, " "), "\""]), " "),
 	ES(Params#{ping := [], params := NewParams}).
 
-sym(#{reply:=RT, ping:=P, params:=Par}) ->
+sym(#{channel:=#{id:=ChannelID}, ping:=P, params:=Par}) ->
 	os:putenv("sym", string:join(Par, " ")),
-	{irc, {msg, {RT, [P, os:cmd("./sympy_eval.sh 5 \"$sym\"")]}}}.
-lsym(#{reply:=RT, ping:=P, params:=Par}) ->
+	{respond, {message, ChannelID, [P, os:cmd("./sympy_eval.sh 5 \"$sym\"")]}}.
+lsym(#{channel:=#{id:=ChannelID}, ping:=P, params:=Par}) ->
 	os:putenv("sym", string:join(Par, " ")),
-	{irc, {msg, {RT, [P, os:cmd("./sympy_eval.sh 60 \"$sym\"")]}}}.
+	{respond, {message, ChannelID, [P, os:cmd("./sympy_eval.sh 60 \"$sym\"")]}}.
 
-shl(#{reply:=RT, ping:=P, params:=Params}) ->
+shl(#{channel:=#{id:=ChannelID}, ping:=P, params:=Params}) ->
 	PStr = lists:flatten(string:join(Params, " ")),
 	String = case lists:last(PStr) of
 		$. -> PStr;
@@ -82,24 +76,24 @@ shl(#{reply:=RT, ping:=P, params:=Params}) ->
 					case catch erl_eval:exprs(Forms, Bindings) of
 						{value, Value, NewBinds} ->
 							config:set_value(data, [eval, shell], NewBinds),
-							{irc, {msg, {RT, [P, io_lib:format("~500p", [Value])]}}};
-						{'EXIT', {Reason, Stack}} when is_list(Stack) -> {irc, {msg, {RT, [P, format_reasonstack(Reason, Stack)]}}};
-						{'EXIT', Term} -> {irc, {msg, {RT, [P, io_lib:format("Code exited with ~p", [Term])]}}};
-						Term -> {irc, {msg, {RT, [P, io_lib:format("Code threw ~p", [Term])]}}}
+							{respond, {message, ChannelID, [P, io_lib:format("~500p", [Value])]}};
+						{'EXIT', {Reason, Stack}} when is_list(Stack) -> {respond, {message, ChannelID, [P, format_reasonstack(Reason, Stack)]}};
+						{'EXIT', Term} -> {respond, {message, ChannelID, [P, io_lib:format("Code exited with ~p", [Term])]}};
+						Term -> {respond, {message, ChannelID, [P, io_lib:format("Code threw ~p", [Term])]}}
 					end;
-				T -> {irc, {msg, {RT, [P, io_lib:format("~p", [T])]}}}
+				T -> {respond, {message, ChannelID, [P, io_lib:format("~p", [T])]}}
 			end;
-		T -> {irc, {msg, {RT, [P, io_lib:format("~p", [T])]}}}
+		T -> {respond, {message, ChannelID, [P, io_lib:format("~p", [T])]}}
 	end.
 
-sshow(#{reply:=RT, ping:=P}) ->
+sshow(#{channel:=#{id:=ChannelID}, ping:=P}) ->
 	case config:get_value(data, [eval, shell]) of
-		'$none' -> {irc, {msg, {RT, [P, "No state found."]}}};
-		V -> {irc, {msg, {RT, [P, io_lib:format("~500p", [V])]}}}
+		'$none' -> {respond, {message, ChannelID, [P, "No state found."]}};
+		V -> {respond, {message, ChannelID, [P, io_lib:format("~500p", [V])]}}
 	end.
 
-serase(#{reply:=RT, ping:=P, params:=A}) when length(A) /= 1 -> {irc, {msg, {RT, [P, "Provide a single var name."]}}};
-serase(#{reply:=RT, ping:=P, params:=[Var]}) ->
+serase(#{channel:=#{id:=ChannelID}, ping:=P, params:=A}) when length(A) /= 1 -> {respond, {message, ChannelID, [P, "Provide a single var name."]}};
+serase(#{channel:=#{id:=ChannelID}, ping:=P, params:=[Var]}) ->
 	Msg = case config:get_value(data, [eval, shell]) of
 		'$none' -> "No vars found.";
 		Vars ->
@@ -112,43 +106,43 @@ serase(#{reply:=RT, ping:=P, params:=[Var]}) ->
 					io_lib:format("No variable ~s found.", [Var])
 			end
 	end,
-	{irc, {msg, {RT, [P, Msg]}}}.
+	{respond, {message, ChannelID, [P, Msg]}}.
 
-sdrop(#{reply:=RT, ping:=P}) ->
+sdrop(#{channel:=#{id:=ChannelID}, ping:=P}) ->
 	config:set_value(data, [eval, shell], []),
-	{irc, {msg, {RT, [P, "State dropped."]}}}.
+	{respond, {message, ChannelID, [P, "State dropped."]}}.
 
 gen_eval(Func) ->
-	fun(#{reply:=ReplyTo,ping:=Ping,params:=[    ]}) -> {irc, {msg, {ReplyTo, [Ping, "Provide a string to evaluate!"]}}};
-	   (#{reply:=ReplyTo,ping:=Ping,params:=Params}) ->
+	fun(#{channel:=#{id:=ChannelID},ping:=Ping,params:=[    ]}) -> {respond, {message, ChannelID, [Ping, "Provide a string to evaluate!"]}};
+	   (#{channel:=#{id:=ChannelID},ping:=Ping,params:=Params}) ->
 		Raw = lists:flatten(string:join(Params, " ")),
 		Str = case lists:last(Raw) of
 			$. -> Raw;
 			_ -> Raw ++ "."
 		end,
 		case catch Func(Str) of
-			{ok, Value} -> {irc, {msg, {ReplyTo, [Ping, re:replace(io_lib:format("~w", [Value]), "[\r\n]", "")]}}};
-			{'EXIT', {Reason, Stack}} when is_list(Stack) -> {irc, {msg, {ReplyTo, [Ping, format_reasonstack(Reason, Stack)]}}};
-			{'EXIT', Term} -> {irc, {msg, {ReplyTo, [Ping, io_lib:format("Code exited with ~p", [Term])]}}};
-			{cerr, Term} -> {irc, {msg, {ReplyTo, [Ping, Term]}}};
-			Term -> {irc, {msg, {ReplyTo, [Ping, io_lib:format("Code threw ~p", [Term])]}}}
+			{ok, Value} -> {respond, {message, ChannelID, [Ping, re:replace(io_lib:format("~w", [Value]), "[\r\n]", "")]}};
+			{'EXIT', {Reason, Stack}} when is_list(Stack) -> {respond, {message, ChannelID, [Ping, format_reasonstack(Reason, Stack)]}};
+			{'EXIT', Term} -> {respond, {message, ChannelID, [Ping, io_lib:format("Code exited with ~p", [Term])]}};
+			{cerr, Term} -> {respond, {message, ChannelID, [Ping, Term]}};
+			Term -> {respond, {message, ChannelID, [Ping, io_lib:format("Code threw ~p", [Term])]}}
 		end
 	end.
 
 gen_eval_str(Func) ->
-	fun(#{reply:=ReplyTo,ping:=Ping,params:=[    ]}) -> {irc, {msg, {ReplyTo, [Ping, "Provide a string to evaluate!"]}}};
-	   (#{reply:=ReplyTo,ping:=Ping,params:=Params}) ->
+	fun(#{channel:=#{id:=ChannelID},ping:=Ping,params:=[    ]}) -> {respond, {message, ChannelID, [Ping, "Provide a string to evaluate!"]}};
+	   (#{channel:=#{id:=ChannelID},ping:=Ping,params:=Params}) ->
 		Raw = lists:flatten(string:join(Params, " ")),
 		Str = case lists:last(Raw) of
 			$. -> Raw;
 			_ -> Raw ++ "."
 		end,
 		case catch Func(Str) of
-			{ok, Value} -> {irc, {msg, {ReplyTo, [Ping, re:replace(io_lib:format("~s", [Value]), "[\r\n]", "")]}}};
-			{'EXIT', {Reason, Stack}} when is_list(Stack) -> {irc, {msg, {ReplyTo, [Ping, format_reasonstack(Reason, Stack)]}}};
-			{'EXIT', Term} -> {irc, {msg, {ReplyTo, [Ping, io_lib:format("Code exited with ~p", [Term])]}}};
-			{cerr, Term} -> {irc, {msg, {ReplyTo, [Ping, Term]}}};
-			Term -> {irc, {msg, {ReplyTo, [Ping, io_lib:format("Code threw ~p", [Term])]}}}
+			{ok, Value} -> {respond, {message, ChannelID, [Ping, re:replace(io_lib:format("~s", [Value]), "[\r\n]", "")]}};
+			{'EXIT', {Reason, Stack}} when is_list(Stack) -> {respond, {message, ChannelID, [Ping, format_reasonstack(Reason, Stack)]}};
+			{'EXIT', Term} -> {respond, {message, ChannelID, [Ping, io_lib:format("Code exited with ~p", [Term])]}};
+			{cerr, Term} -> {respond, {message, ChannelID, [Ping, Term]}};
+			Term -> {respond, {message, ChannelID, [Ping, io_lib:format("Code threw ~p", [Term])]}}
 		end
 	end.
 

@@ -91,7 +91,7 @@ gateway_handle(ConnPid, Event) -> % Unknown payload received, all payloads shoul
 
 discord_request(Type, Url, Data, Callback) -> spawn(?MODULE, discord_request, [Type, Url, Data, Callback, nospawn]).
 discord_request(post, Url, Data, Callback, nospawn) when is_function(Callback, 1) ->
-	{ok, ConnPid} = gun:open("discordapp.com", 443, #{protocols=>[http], retry=>0}),
+	{ok, ConnPid} = gun:open("discordapp.com", 443, #{protocols=>[http], retry=>0, transport_opts=>[{versions, ['tlsv1.1']}]}),
 	StreamRef = gun:post(ConnPid, ["/api/v6", Url], [
 		{<<"Authorization">>, ["Bot ", config:require_value(config, [bot, token])]},
 		{<<"content-type">>, "application/json"}
@@ -107,7 +107,7 @@ discord_request(post, Url, Data, Callback, nospawn) when is_function(Callback, 1
 		err
 	end;
 discord_request(get, Url, Data, Callback, nospawn) when is_function(Callback, 1) ->
-	{ok, ConnPid} = gun:open("discordapp.com", 443, #{protocols=>[http], retry=>0}),
+	{ok, ConnPid} = gun:open("discordapp.com", 443, #{protocols=>[http], retry=>0, transport_opts=>[{versions, ['tlsv1.1']}]}),
 	StreamRef = gun:get(ConnPid, ["/api/v6", Url], [
 		{<<"Authorization">>, ["Bot ", config:require_value(config, [bot, token])]},
 		{<<"content-type">>, "application/json"}
