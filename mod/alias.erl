@@ -25,42 +25,42 @@ apply(Spec, Args) ->
 			(T) -> [T]
 		end, Spec).
 
-alias(#{reply:=Reply, ping:=Ping, params:=Params}) ->
+alias(#{channel:=#{id:=ChannelID}, ping:=Ping, params:=Params}) ->
 	case Params of
 		[New, Real | ArgSpec] ->
 			case parse(ArgSpec) of
 				{ok,Spec} ->
 					config:set_value(data, [?MODULE, aliases, New], {Real, Spec}),
-					{irc, {msg, {Reply, [Ping, "Done."]}}};
+					{respond, {message, ChannelID, [Ping, "Done."]}};
 				error ->
-					{irc, {msg, {Reply, [Ping, "Illegal spec."]}}}
+					{respond, {message, ChannelID, [Ping, "Illegal spec."]}}
 			end;
-		_ -> {irc, {msg, {Reply, [Ping, "Usage: alias [alias] [command] [argspec]"]}}}
+		_ -> {respond, {message, ChannelID, [Ping, "Usage: alias [alias] [command] [argspec]"]}}
 	end.
 
-unalias(#{reply:=Reply, ping:=Ping, params:=Params}) ->
+unalias(#{channel:=#{id:=ChannelID}, ping:=Ping, params:=Params}) ->
 	case Params of
 		[Alias] ->
 			case config:get_value(data, [?MODULE, aliases, Alias]) of
 				'$none' ->
-					{irc, {msg, {Reply, [Ping, $', Alias, $', " is not an alias"]}}};
+					{respond, {message, ChannelID, [Ping, $', Alias, $', " is not an alias"]}};
 				_ ->
 					config:del_value(data, [?MODULE, aliases, Alias]),
-					{irc, {msg, {Reply, [Ping, "Done."]}}}
+					{respond, {message, ChannelID, [Ping, "Done."]}}
 			end;
-		_ -> {irc, {msg, {Reply, [Ping, "Usage: unalias [alias]"]}}}
+		_ -> {respond, {message, ChannelID, [Ping, "Usage: unalias [alias]"]}}
 	end.
 
-isalias(#{reply:=Reply, ping:=Ping, params:=Params}) ->
+isalias(#{channel:=#{id:=ChannelID}, ping:=Ping, params:=Params}) ->
 	case Params of
 		[Alias] ->
 			case config:get_value(data, [?MODULE, aliases, Alias]) of
 				'$none' ->
-					{irc, {msg, {Reply, [Ping, io_lib:format("~s is not an alias.", [Alias])]}}};
+					{respond, {message, ChannelID, [Ping, io_lib:format("~s is not an alias.", [Alias])]}};
 				{Command,Spec} ->
-					{irc, {msg, {Reply, [Ping, io_lib:format("~s is an alias for ~s with spec ~s.", [Alias, Command, format_spec(Spec)])]}}}
+					{respond, {message, ChannelID, [Ping, io_lib:format("~s is an alias for ~s with spec ~s.", [Alias, Command, format_spec(Spec)])]}}
 			end;
-		_ -> {irc, {msg, {Reply, [Ping, "Usage: isalias [command]"]}}}
+		_ -> {respond, {message, ChannelID, [Ping, "Usage: isalias [command]"]}}
 	end.
 
 parse(Params) ->

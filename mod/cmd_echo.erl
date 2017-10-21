@@ -7,8 +7,8 @@ get_commands() ->
 		{"npecho", fun npecho/1, [long], user}
 	].
 
-echo(#{reply:=Reply, ping:=Ping, params:=[String]}) ->
-	{irc, {msg, {Reply, [Ping, String]}}}.
+echo(#{channel:=#{id:=ChannelID}, ping:=Ping, params:=[String]}) ->
+	{respond, {message, ChannelID, [Ping, String]}}.
 
-npecho(#{reply:=Reply, params:=[String]}) ->
-	{irc, {msg, {Reply, String}}}.
+npecho(#{channel:=#{id:=ChannelID}, params:=[String]}) ->
+	{respond, {message, ChannelID, String}}.

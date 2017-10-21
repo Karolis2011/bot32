@@ -12,7 +12,7 @@ init() ->
 	config:start(data),
 	config:start_transient(temp),
 
-	{ok, ConnPid} = gun:open("gateway.discord.gg", 443, #{protocols=>[http], retry=>0}),
+	{ok, ConnPid} = gun:open("gateway.discord.gg", 443, #{protocols=>[http], retry=>0, transport_opts=>[{versions, ['tlsv1.2']}]}),
 	MRef = monitor(process, ConnPid),
 	register(core, self()),
 	logging:log(info, ?MODULE, "starting"),
