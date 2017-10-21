@@ -342,4 +342,5 @@ mochi_to_map({struct, Value}) when is_list(Value) ->
 	lists:foldl(fun ({Key, Val}, NM) ->
 		NM#{Key=>mochi_to_map(Val)}
 	end, #{}, Value);
+mochi_to_map({array, Value}) when is_list(Value) -> Value;
 mochi_to_map(Value) -> Value.

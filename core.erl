@@ -55,6 +55,8 @@ loop(ConnPid) ->
 			common:gateway_send(ConnPid, 1, config:require_value(temp, [bot, last_s]));
 		{'DOWN', Mref, process, ConnPid, Reason} ->
 			logging:log(info, ?MODULE, "Gateway connection died: ~p", [Reason]), error;
+		{respond, {typing, ChannelID}} ->
+			common:discord_request(post, io_lib:format("/channels/~p/typing", [ChannelID]), {struct, []}, fun (_) -> ok end), ok;
 		{respond, {message, ChannelID, Message}} ->
 			common:discord_request(post, io_lib:format("/channels/~p/messages", [ChannelID]), {struct, [{"content", lists:flatten(Message)}]}, fun (_) -> ok end), ok;
 		{respond, {dm, UserID, Message}} ->

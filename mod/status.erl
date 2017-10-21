@@ -84,6 +84,7 @@ address(ChannelID, Ping, _, S, P, _, Name) ->
 status(ChannelID, _, _, S, P, ID, Name) ->
 	status(ChannelID, S, P, ID, Name, false).
 status(ChannelID, S, P, ID, Name, SilenceErrors) ->
+	core ! {respond, {typing, ChannelID}},
 	case config:get_value(config, [?MODULE, key, list_to_binary(io_lib:format("~s:~p", [S, P]))]) of
 		'$none' -> 
 			case byond:send(S, P, "status=2") of
@@ -122,6 +123,7 @@ status(ChannelID, S, P, ID, Name, SilenceErrors, Key, json) ->
 	end.
 
 revision(ChannelID, _, _, S, P, ID, Name) ->
+	core ! {respond, {typing, ChannelID}},
 	case byond:send(S, P, "revision") of
 		{error, X} -> core ! {respond, {message, ChannelID, io_lib:format("~sError: ~p", [Name, X])}};
 		[{"unknown","?"}] -> core ! {respond, {message, ChannelID, io_lib:format("~sRevision unknown.", [Name])}};
@@ -140,18 +142,38 @@ revision(ChannelID, _, _, S, P, ID, Name) ->
 	end.
 
 admins(ChannelID, _, _, S, P, _, Name) ->
-	case byond:send(S, P, "status=2") of
+	core ! {respond, {typing, ChannelID}},
+	case config:get_value(config, [?MODULE, key, list_to_binary(io_lib:format("~s:~p", [S, P]))]) of
+		'$none' -> 
+			case byond:send(S, P, "status=2") of
+				{error, X} -> core ! {respond, {message, ChannelID, io_lib:format("~sError: ~p", [Name,X])}};
+				Dict ->
+					Msg = case byond:params2dict(safeget(Dict, "adminlist")) of
+						[{"?",none}] -> [Name,"No admins online."];
+						Admins ->
+							BinMins = lists:map(fun({A,B}) -> {re:replace(A, <<32>>, <<160/utf8>>, [{return, binary}, global]),
+																re:replace(B, <<32>>, <<160/utf8>>, [{return, binary}, global])} end, Admins),
+							AdminStr = util:binary_join(lists:map(fun({<<A/utf8,B/binary>>,C}) -> CA=a(C), <<A/utf8, ?Sep/utf8, B/binary, " is ", CA/binary, " ", C/binary>> end, BinMins), <<"; ">>),
+							[io_lib:format("~sAdmins (~b): ", [Name,length(Admins)]), AdminStr]
+					end,
+					core ! {respond, {message, ChannelID, Msg}}
+			end;
+		Key -> admins(ChannelID, none, none, S, P, none, Name, Key, json)
+	end.
+admins(ChannelID, _, _, S, P, _, Name, Key, json) ->
+	Req = [{"query", "get_serverstatus"}, {"auth", Key}, {"status", "2"}],
+	case byond:send(S, P, json:write({struct, Req}), false) of
 		{error, X} -> core ! {respond, {message, ChannelID, io_lib:format("~sError: ~p", [Name,X])}};
-		Dict ->
-			Msg = case byond:params2dict(safeget(Dict, "adminlist")) of
-				[{"?",none}] -> [Name,"No admins online."];
-				Admins ->
-					BinMins = lists:map(fun({A,B}) -> {re:replace(A, <<32>>, <<160/utf8>>, [{return, binary}, global]),
-					                                   re:replace(B, <<32>>, <<160/utf8>>, [{return, binary}, global])} end, Admins),
-					AdminStr = util:binary_join(lists:map(fun({<<A/utf8,B/binary>>,C}) -> CA=a(C), <<A/utf8, ?Sep/utf8, B/binary, " is ", CA/binary, " ", C/binary>> end, BinMins), <<"; ">>),
-					[io_lib:format("~sAdmins (~b): ", [Name,length(Admins)]), AdminStr]
-			end,
-			core ! {respond, {message, ChannelID, Msg}}
+		JData ->
+			case util:mochi_to_map(json:parse(JData)) of
+				#{"statuscode":=200, "data":=#{"adminlist":=Admins, "admins":=ACount}} ->
+					SNice = maps:fold(fun (Name, Title, NList) ->
+						lists:append(NList, [lists:flatten([Name, " - _", Title, "_"])])
+						end, [], Admins),
+					util:groupstrs(fun(T) -> core ! {respond, {message, ChannelID, [io_lib:format("~sAdmins (~b): ", [Name,length(SNice)]), T]}} end, 2000, lists:sort(SNice), ", ");
+				#{"statuscode":=Code, "response":=Response} ->
+					core ! {respond, {message, ChannelID, io_lib:format("~sError: (~p) ~s", [Name, Code, Response])}}
+			end
 	end.
 
 a(<<T/utf8, _/binary>>) ->
@@ -162,50 +184,86 @@ a(<<T/utf8, _/binary>>) ->
 a(_) -> <<"a">>.
 
 mode(ChannelID, _, _, S, P, _, Name) ->
-	case byond:send(S, P, "status=2") of
+	core ! {respond, {typing, ChannelID}},
+	case config:get_value(config, [?MODULE, key, list_to_binary(io_lib:format("~s:~p", [S, P]))]) of
+		'$none' -> 
+			case byond:send(S, P, "status=2") of
+				{error, X} -> core ! {respond, {message, ChannelID, io_lib:format("~sError: ~p", [Name,X])}};
+				Dict ->
+					Mode = safeget(Dict, "mode"),
+					core ! {respond, {message, ChannelID, [Name, "Mode: ", Mode]}}
+			end;
+		Key -> mode(ChannelID, none, none, S, P, none, Name, Key, json)
+	end.
+mode(ChannelID, _, _, S, P, _, Name, Key, json) ->
+	Req = [{"query", "get_serverstatus"}, {"auth", Key}],
+	case byond:send(S, P, json:write({struct, Req}), false) of
 		{error, X} -> core ! {respond, {message, ChannelID, io_lib:format("~sError: ~p", [Name,X])}};
-		Dict ->
-			Mode = safeget(Dict, "mode"),
-			core ! {respond, {message, ChannelID, [Name, "Mode: ", Mode]}}
+		JData ->
+			case util:mochi_to_map(json:parse(JData)) of
+				#{"statuscode":=200, "data":=#{"mode":=Mode}} ->
+					core ! {respond, {message, ChannelID, [Name, "Mode: ", Mode]}};
+				#{"statuscode":=Code, "response":=Response} ->
+					core ! {respond, {message, ChannelID, io_lib:format("~sError: (~p) ~s", [Name, Code, Response])}}
+			end
 	end.
 
-players(ChannelID, _, _, S, P, _, Name) ->
-	case byond:send(S, P, "status=2") of
+players(ChannelID, _, UserID, S, P, _, Name) ->
+	core ! {respond, {typing, ChannelID}},
+	case config:get_value(config, [?MODULE, key, list_to_binary(io_lib:format("~s:~p", [S, P]))]) of
+		'$none' -> 
+			case byond:send(S, P, "status=2") of
+				{error, X} -> core ! {respond, {message, ChannelID, io_lib:format("~sError: ~p", [Name, X])}};
+				Dict ->
+					case safeget(Dict, "players") of
+						"?" -> core ! {respond, {message, ChannelID, [Name, "Error."]}};
+						"0" -> core ! {respond, {message, ChannelID, [Name, "No players present."]}};
+						_ ->
+							Players = byond:params2dict(safeget(Dict, "playerlist")),
+							Ordered = lists:sort(lists:map(fun({X,_}) -> re:replace(X, [32], <<160/utf8>>, [{return, binary}, global]) end, Players)),
+							Names = lists:map(fun(<<A/utf8, B/binary>>) -> binary_to_list(<<A/utf8, B/binary>>) end, Ordered),
+							util:groupstrs(fun(T) -> core ! {respond, {message, ChannelID, [Name, "Players: ", T]}} end, 2000, Names, ", ")
+					end
+			end;
+		Key -> players(ChannelID, none, UserID, S, P, none, Name, Key, json)
+	end.
+	
+players(ChannelID, _, _, S, P, _, Name, Key, json) ->
+	Req = [{"query", "get_serverstatus"}, {"auth", Key}, {"status", "2"}],
+	case byond:send(S, P, json:write({struct, Req}), false) of
 		{error, X} -> core ! {respond, {message, ChannelID, io_lib:format("~sError: ~p", [Name, X])}};
-		Dict ->
-			case safeget(Dict, "players") of
-				"?" -> core ! {respond, {message, ChannelID, [Name, "Error."]}};
-				"0" -> core ! {respond, {message, ChannelID, [Name, "No players present."]}};
-				_ ->
-					Players = byond:params2dict(safeget(Dict, "playerlist")),
-					Ordered = lists:sort(lists:map(fun({X,_}) -> re:replace(X, [32], <<160/utf8>>, [{return, binary}, global]) end, Players)),
-					Names = lists:map(fun(<<A/utf8, B/binary>>) -> binary_to_list(<<A/utf8, ?Sep/utf8, B/binary>>) end, Ordered),
-					util:groupstrs(fun(T) -> core ! {respond, {message, ChannelID, [Name, "Players: ", T]}} end, 2000, Names, ", ")
+		JData ->
+			case util:mochi_to_map(json:parse(JData)) of
+				#{"statuscode":=200, "data":=#{"playerlist":=Data}} ->
+					SData = lists:sort(Data),
+					util:groupstrs(fun(T) -> core ! {respond, {message, ChannelID, [Name, "Players: ", T]}} end, 2000, SData, ", ");
+				#{"statuscode":=Code, "response":=Response} -> core ! {respond, {message, ChannelID, io_lib:format("~sError: (~p) ~s", [Name, Code, Response])}}
 			end
 	end.
 
 manifest(ChannelID, _, UserID, S, P, ID, Name) ->
-		case config:get_value(config, [?MODULE, key, list_to_binary(io_lib:format("~s:~p", [S, P]))]) of
-				'$none' -> 
-					case byond:send(S, P, "manifest") of
-						{error, X} -> core ! {respond, {message, ChannelID, io_lib:format("~sError: ~p", [Name, X])}};
-						[] -> core ! {respond, {message, ChannelID, [Name, "Manifest is empty"]}};
-						Dict ->
-							Message = lists:foldl(fun ({Dept, Players}, PMsg) ->
-								[PMsg, "**", Dept, "**:\r\n", lists:foldl(fun ({Char, Title}, PPMsg) ->
-									[PPMsg, Char, " - _", Title, "_\r\n"]
-								end, "", byond:params2dict(Players)), "\r\n"]
-							end, [Name, "Manifest:\r\n"], Dict),
-							Lengths = lists:foldl(fun ({Dept, Players}, Last) -> 
-								[Last, " ", Dept, ": ", io_lib:format("~p", [lists:foldl(fun (_, PLast) -> 
-									PLast + 1 
-								end, 0, byond:params2dict(Players))]), ";"] 
-							end, "", Dict),
-							core ! {respond, {dm, UserID, [Message]}},
-							core ! {respond, {message, ChannelID, [Name, "Manifest lengths:", Lengths]}}
-					end;
-				Key -> manifest(ChannelID, none, UserID, S, P, ID, Name, Key, json)
-			end.
+	core ! {respond, {typing, ChannelID}},
+	case config:get_value(config, [?MODULE, key, list_to_binary(io_lib:format("~s:~p", [S, P]))]) of
+		'$none' -> 
+			case byond:send(S, P, "manifest") of
+				{error, X} -> core ! {respond, {message, ChannelID, io_lib:format("~sError: ~p", [Name, X])}};
+				[] -> core ! {respond, {message, ChannelID, [Name, "Manifest is empty"]}};
+				Dict ->
+					Message = lists:foldl(fun ({Dept, Players}, PMsg) ->
+						[PMsg, "**", Dept, "**:\r\n", lists:foldl(fun ({Char, Title}, PPMsg) ->
+							[PPMsg, Char, " - _", Title, "_\r\n"]
+						end, "", byond:params2dict(Players)), "\r\n"]
+					end, [Name, "Manifest:\r\n"], Dict),
+					Lengths = lists:foldl(fun ({Dept, Players}, Last) -> 
+						[Last, " ", Dept, ": ", io_lib:format("~p", [lists:foldl(fun (_, PLast) -> 
+							PLast + 1 
+						end, 0, byond:params2dict(Players))]), ";"] 
+					end, "", Dict),
+					core ! {respond, {dm, UserID, [Message]}},
+					core ! {respond, {message, ChannelID, [Name, "Manifest lengths:", Lengths]}}
+			end;
+		Key -> manifest(ChannelID, none, UserID, S, P, ID, Name, Key, json)
+	end.
 manifest(ChannelID, _, UserID, S, P, _, Name, Key, json) ->
 	Req = [{"query", "get_manifest"}, {"auth", Key}],
 	case byond:send(S, P, json:write({struct, Req}), false) of
