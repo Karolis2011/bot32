@@ -60,7 +60,6 @@ loop(ConnPid) ->
 		{respond, {message, ChannelID, Message}} ->
 			common:discord_request(post, io_lib:format("/channels/~p/messages", [ChannelID]), {struct, [{"content", lists:flatten(Message)}]}, fun (_) -> ok end), ok;
 		{respond, {dm, UserID, Message}} ->
-			logging:log(info, ?MODULE, "Sending DM to ~p: ~s", [UserID, Message]),
 			case config:get_value(temp, [bot, userDM, UserID]) of
 				'$none' -> 
 					common:discord_request(post, "/users/@me/channels", {struct, [{"recipient_id", UserID}]}, fun ({struct, Params}) ->
