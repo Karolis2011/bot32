@@ -56,6 +56,7 @@ eecho(Params=#{params:=Tokens}) ->
 	ES(Params#{ping := [], params := NewParams}).
 
 sym(#{channel:=#{id:=ChannelID}, ping:=P, params:=Par}) ->
+	core ! {respond, {typing, ChannelID}},
 	os:putenv("sym", string:join(Par, " ")),
 	{respond, {message, ChannelID, [P, os:cmd("./sympy_eval.sh 5 \"$sym\"")]}}.
 lsym(#{channel:=#{id:=ChannelID}, ping:=P, params:=Par}) ->
