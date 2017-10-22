@@ -11,7 +11,7 @@ get_commands() ->
 		{"units", fun units/1, user}
 	].
 
-units(#{reply:=RT, ping:=P, params:=Params}) ->
+units(#{channel:=#{id:=ChannelID}, ping:=P, params:=Params}) ->
 	case case lists:splitwith(fun(T)->T /= "in" andalso T /= "to" andalso T /= "->" end, Params) of
 		{Src, []} ->
 			util:unicode_os_putenv("units_src", string:join(Src, " ")),
@@ -24,9 +24,9 @@ units(#{reply:=RT, ping:=P, params:=Params}) ->
 			util:unicode_os_putenv("units_dst", string:join(Dst, " ")),
 			two
 	end of
-		one -> {irc, {msg, {RT, [P, get_units_reply("units -t -- \"$units_src\"")]}}};
-		two -> {irc, {msg, {RT, [P, get_units_reply("units -t -- \"$units_src\" \"$units_dst\"")]}}};
-		T -> {irc, {msg, {RT, [P, T]}}}
+		one -> {respond, {message, ChannelID, [P, get_units_reply("units -t -- \"$units_src\"")]}};
+		two -> {respond, {message, ChannelID, [P, get_units_reply("units -t -- \"$units_src\" \"$units_dst\"")]}};
+		T -> {respond, {message, ChannelID, [P, T]}}
 	end.
 
 units_alt(Params) ->
