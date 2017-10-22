@@ -62,12 +62,12 @@ help() ->
 
 generic(Func) ->
 	fun(#{origin:=#{id:=UserID}, channel:=Channel=#{id:=ChannelID}, guild:=Guild, ping:=P, params:=[]}) ->
+		GuildID = case Guild of
+			none -> none;
+			#{id:=GID} -> GID
+		end,
 		case orddict:find(defaultserver(ChannelID, GuildID), servers()) of
-			{ok, {Addr,Port,Name}} ->
-				case Guild of
-					none -> spawn(status, Func, [ChannelID, P, UserID, Addr, Port, defaultserver(ChannelID, none), Name]), ok;
-					#{id:=GuildID} -> spawn(status, Func, [ChannelID, P, UserID, Addr, Port, defaultserver(ChannelID, GuildID), Name]), ok
-				end;
+			{ok, {Addr,Port,Name}} -> spawn(status, Func, [ChannelID, P, UserID, Addr, Port, defaultserver(ChannelID, GuildID), Name]), ok;
 			error -> {respond, {message, ChannelID, [P, "Failed to find default server for this channel!"]}}
 		end;
 	   (#{origin:=#{id:=UserID}, channel:=Channel=#{id:=ChannelID}, ping:=P, params:=[Address="byond://"++_]}) ->
