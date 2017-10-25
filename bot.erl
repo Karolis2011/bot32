@@ -115,6 +115,9 @@ handle_gateway_event('MESSAGE_CREATE', Data = #{channel_id:=ChannelID, author:=U
 		end
 	end;
 handle_gateway_event('TYPING_START', _) -> ok;
+handle_gateway_event('VOICE_STATE_UPDATE', _) -> ok;
+handle_gateway_event('PRESENCE_UPDATE', _) -> ok;
+handle_gateway_event('WEBHOOKS_UPDATE', _) -> ok;
 handle_gateway_event(EventName, Data) ->
 	logging:log(error, ?MODULE, "Unhandled event ~p: ~p", [EventName, Data]), ok.
 
