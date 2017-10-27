@@ -49,6 +49,7 @@ loop(ConnPid) ->
 					config:set_value(temp, [bot, last_s], LastS),
 					common:gateway_handle(ConnPid, ETFFrame);
 				{text, _} -> logging:log(info, ?MODULE, "Got text frame: ~p", [Frame]);
+				{close, _, _} -> timer:sleep(2000), core:init(), quit;
 				X -> logging:log(error, ?MODULE, "Received unknown frame type: ~p", [X])
 			end, ok;
 		{sendheartbeat, _} ->
