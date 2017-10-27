@@ -4,7 +4,16 @@
 -include("definitions.hrl").
 
 handle_event(newMessage, {_, Tokens, User = #{username:=Username}, Channel = #{id:=ChannelId}, Guild}) ->
-	case parse_command(Tokens) of
+	Prefxes = case Guild of
+		#{id:=GuildId} -> 
+			case config:get_value(config, [bot, prefix, GuildId]) of
+				'$none' -> [];
+				L when is_list(L) -> L;
+				_ -> []
+			end;
+		_ -> []
+	end,
+	case parse_command(Tokens, Prefxes) of
 		{RCommand, RArguments, Selector} ->
 			logging:log(info, ?MODULE, "Command in ~p from ~s: ~s~s ~s", [ChannelId, Username, RCommand, if Selector /= [] -> [$@|Selector]; true -> [] end, string:join(RArguments, " ")]),
 			{Command, Arguments} = lists:foldl(fun(Module, {C,A}) ->
@@ -28,23 +37,29 @@ handle_event(newMessage, {_, Tokens, User = #{username:=Username}, Channel = #{i
 	end;
 handle_event(_, _) -> ok.
 
-parse_command([]) -> notcommand;
-parse_command(Params) ->
-	if
-		length(Params) > 1 ->
-			BotAliases = config:require_value(temp, [bot, names]),
-			case lists:any(fun(Alias) ->
-						R = util:regex_escape(Alias),
-						re:run(hd(Params), <<"^", R/binary, "($|[^a-zA-Z0-9])">>, [caseless, {capture, none}]) == match
-					end, BotAliases) of
-				true ->
-					case tl(Params) of
-						[] -> {[], [], []};
-						_ -> desel(hd(tl(Params)), tl(tl(Params)))
+parse_command([], _) -> notcommand;
+parse_command(Params, Prefixes) ->
+	<<FirstChar/utf8, Rest/binary>> = list_to_binary(hd(Params)),
+	case lists:member(FirstChar, Prefixes) of
+		true when Rest /= <<>> -> desel(binary_to_list(Rest), tl(Params));
+		true -> notcommand;
+		false ->
+			if
+				length(Params) > 1 ->
+					BotAliases = config:require_value(temp, [bot, names]),
+					case lists:any(fun(Alias) ->
+								R = util:regex_escape(Alias),
+								re:run(hd(Params), <<"^", R/binary, "($|[^a-zA-Z0-9])">>, [caseless, {capture, none}]) == match
+							end, BotAliases) of
+						true ->
+							case tl(Params) of
+								[] -> {[], [], []};
+								_ -> desel(hd(tl(Params)), tl(tl(Params)))
+							end;
+						false -> notcommand
 					end;
-				false -> notcommand
-			end;
-		true -> notcommand
+				true -> notcommand
+			end
 	end.
 
 desel(A, B) ->

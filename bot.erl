@@ -18,8 +18,6 @@ init() ->
 	util:waitfor(core),
 	config:offer_value(config, [permissions], []),
 	config:offer_value(config, [bot, modules], []),
-	config:offer_value(config, [bot, on_join], []),
-	config:offer_value(config, [bot, names], []),
 	config:offer_value(config, [bot, client_id], "client_id_here"),
 	config:offer_value(config, [bot, client_secret], "client_secret_here"),
 	config:offer_value(config, [bot, token], "bot_token_here"),
