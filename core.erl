@@ -11,17 +11,8 @@ init() ->
 	end,
 	config:start(data),
 	config:start_transient(temp),
-
-	{ok, ConnPid} = gun:open("gateway.discord.gg", 443, #{protocols=>[http], retry=>0, transport_opts=>[{versions, ['tlsv1.1']}]}),
-	MRef = monitor(process, ConnPid),
 	register(core, self()),
-	logging:log(info, ?MODULE, "starting"),
-	loop(ConnPid), %Remake everything related to this
-	logging:log(info, ?MODULE, "quitting"),
-	% Transport:close(Sock),
-	% ssl:stop(),
-	timer:sleep(1000),
-	gun:close(ConnPid),
+	initNet(),
 	case whereis(bot) of
 		undefined -> ok;
 		Pid -> Pid ! quit, ok
@@ -30,6 +21,15 @@ init() ->
 		undefined -> ok;
 		HPid -> HPid ! quit, ok
 	end.
+
+initNet() ->
+	{ok, ConnPid} = gun:open("gateway.discord.gg", 443, #{protocols=>[http], retry=>0, transport_opts=>[{versions, ['tlsv1.1']}]}),
+	MRef = monitor(process, ConnPid),
+	logging:log(info, ?MODULE, "starting"),
+	loop(ConnPid),
+	logging:log(info, ?MODULE, "quitting"),
+	timer:sleep(1000),
+	gun:close(ConnPid).
 
 loop(ConnPid) ->
 	case receive
@@ -49,7 +49,7 @@ loop(ConnPid) ->
 					config:set_value(temp, [bot, last_s], LastS),
 					common:gateway_handle(ConnPid, ETFFrame);
 				{text, _} -> logging:log(info, ?MODULE, "Got text frame: ~p", [Frame]);
-				{close, _, _} -> timer:sleep(2000), core:init(), quit;
+				{close, _, _} -> timer:sleep(2000), initNet(), quit;
 				X -> logging:log(error, ?MODULE, "Received unknown frame type: ~p", [X])
 			end, ok;
 		{sendheartbeat, _} ->
