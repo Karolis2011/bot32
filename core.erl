@@ -49,13 +49,15 @@ loop(ConnPid) ->
 					config:set_value(temp, [bot, last_s], LastS),
 					common:gateway_handle(ConnPid, ETFFrame);
 				{text, _} -> logging:log(info, ?MODULE, "Got text frame: ~p", [Frame]);
-				{close, _, _} -> timer:sleep(2000), initNet(), quit;
+				{close, _, _} -> ok;
 				X -> logging:log(error, ?MODULE, "Received unknown frame type: ~p", [X])
 			end, ok;
 		{sendheartbeat, _} ->
 			common:gateway_send(ConnPid, 1, config:require_value(temp, [bot, last_s]));
 		{'DOWN', Mref, process, ConnPid, Reason} ->
-			logging:log(info, ?MODULE, "Gateway connection died: ~p", [Reason]), error;
+			logging:log(info, ?MODULE, "Gateway connection died: ~p", [Reason]), 
+			timer:sleep(2000), initNet(),
+			quit;
 		{respond, {typing, ChannelID}} ->
 			common:discord_request(post, io_lib:format("/channels/~p/typing", [ChannelID]), {struct, []}, fun (_) -> ok end), ok;
 		{respond, {message, ChannelID, Message}} ->
