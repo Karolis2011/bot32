@@ -11,7 +11,6 @@ init() ->
 	end,
 	config:start(data),
 	config:start_transient(temp),
-	config:offer_value(temp, [bot, fails], 0),
 	register(core, self()),
 	initNet(),
 	case whereis(bot) of
@@ -58,6 +57,7 @@ loop(ConnPid) ->
 		{'DOWN', Mref, process, ConnPid, Reason} ->
 			logging:log(info, ?MODULE, "Gateway connection died: ~p", [Reason]), 
 			timer:sleep(10000),
+			config:offer_value(temp, [bot, fails], 0),
 			config:set_value(temp, [bot, fails], config:get_value(temp,[bot, fails]) + 1),
 			case config:get_value(temp,[bot, fails]) of
 				'$none' -> quit;
