@@ -11,7 +11,7 @@ init() ->
 	end,
 	config:start(data),
 	config:start_transient(temp),
-	config:offer_value(temp, [bot, fails], 0);
+	config:offer_value(temp, [bot, fails], 0),
 	register(core, self()),
 	initNet(),
 	case whereis(bot) of
@@ -63,7 +63,7 @@ loop(ConnPid) ->
 				'$none' -> quit;
 				N when N < 20 -> initNet();
 				N -> quit
-			end
+			end,
 			quit;
 		{respond, {typing, ChannelID}} ->
 			common:discord_request(post, io_lib:format("/channels/~p/typing", [ChannelID]), {struct, []}, fun (_) -> ok end), ok;
