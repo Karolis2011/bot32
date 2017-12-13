@@ -11,6 +11,7 @@ init() ->
 	end,
 	config:start(data),
 	config:start_transient(temp),
+	config:offer_value(temp, [bot, fails], 0);
 	register(core, self()),
 	initNet(),
 	case whereis(bot) of
@@ -56,7 +57,12 @@ loop(ConnPid) ->
 			common:gateway_send(ConnPid, 1, config:require_value(temp, [bot, last_s]));
 		{'DOWN', Mref, process, ConnPid, Reason} ->
 			logging:log(info, ?MODULE, "Gateway connection died: ~p", [Reason]), 
-			timer:sleep(2000), initNet(),
+			timer:sleep(2000),
+			config:set_value(temp, [bot, fails], config:get_value(temp,[bot, fails]) + 1),
+			case config:get_value(temp,[bot, fails]) of
+				N when N < 20 -> initNet();
+				N -> quit
+			end
 			quit;
 		{respond, {typing, ChannelID}} ->
 			common:discord_request(post, io_lib:format("/channels/~p/typing", [ChannelID]), {struct, []}, fun (_) -> ok end), ok;
