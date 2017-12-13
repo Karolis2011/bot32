@@ -57,9 +57,10 @@ loop(ConnPid) ->
 			common:gateway_send(ConnPid, 1, config:require_value(temp, [bot, last_s]));
 		{'DOWN', Mref, process, ConnPid, Reason} ->
 			logging:log(info, ?MODULE, "Gateway connection died: ~p", [Reason]), 
-			timer:sleep(2000),
+			timer:sleep(10000),
 			config:set_value(temp, [bot, fails], config:get_value(temp,[bot, fails]) + 1),
 			case config:get_value(temp,[bot, fails]) of
+				'$none' -> quit;
 				N when N < 20 -> initNet();
 				N -> quit
 			end
