@@ -1,8 +1,5 @@
 -module(botinfo).
 -compile(export_all).
-
--include("definitions.hrl").
-
 get_commands() ->
 	[
 		{"uptime", fun uptime/1, user},
@@ -11,7 +8,6 @@ get_commands() ->
 		{"github", fun source/1, user}
 	].
 
-handle_event(ctcp, {version, _, #user{nick=Nick}, _}) -> core ! {irc, {ctcp_re, {version, Nick, version_string()}}};
 handle_event(_, _) -> ok.
 
 sectimestamp() -> calendar:datetime_to_gregorian_seconds(calendar:now_to_universal_time(os:timestamp())).
@@ -21,17 +17,17 @@ initialise() ->
 deinitialise() ->
 	config:del_value(temp, [botinfo]).
 
-uptime(#{reply:=RT, ping:=P}) ->
+uptime(#{channel:=_ = #{id:=ChannelID}, ping:=Ping}) ->
 	config:offer_value(temp, [botinfo], sectimestamp()),
 	StartTime = config:require_value(temp, [botinfo]),
 	NowTime = sectimestamp(),
-	{irc, {msg, {RT, [P, "I have been running for ", common:format_time_difference(NowTime - StartTime)]}}}.
+	{respond, {message, ChannelID, [Ping, "I have been running for ", common:format_time_difference(NowTime - StartTime)]}}.
 
-version(#{reply:=RT, ping:=P}) ->
-	{irc, {msg, {RT, [P | version_string()]}}}.
+version(#{channel:=_ = #{id:=ChannelID}, ping:=Ping}) ->
+	{respond, {message, ChannelID, [Ping, version_string()]}}.
 
-source(#{reply:=RT, ping:=P}) ->
-	{irc, {msg, {RT, [P, "http://github.com/GinjaNinja32/bot32"]}}}.
+source(#{channel:=_ = #{id:=ChannelID}, ping:=Ping}) ->
+	{respond, {message, ChannelID, [Ping, "http://github.com/GinjaNinja32/bot32"]}}.
 
 version_string() ->
 	% Erlang info
