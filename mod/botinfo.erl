@@ -1,5 +1,8 @@
 -module(botinfo).
 -compile(export_all).
+
+-include("definitions.hrl").
+
 get_commands() ->
 	[
 		{"uptime", fun uptime/1, user},
@@ -27,7 +30,7 @@ version(#{channel:=_ = #{id:=ChannelID}, ping:=Ping}) ->
 	{respond, {message, ChannelID, [Ping, version_string()]}}.
 
 source(#{channel:=_ = #{id:=ChannelID}, ping:=Ping}) ->
-	{respond, {message, ChannelID, [Ping, "http://github.com/GinjaNinja32/bot32"]}}.
+	{respond, {message, ChannelID, [Ping, "http://github.com/Karolis2011/bot32"]}}}.
 
 version_string() ->
 	% Erlang info
