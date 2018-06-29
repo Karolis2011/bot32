@@ -24,11 +24,11 @@ get_commands() ->
 
 bash(#{channel:=#{id:=ChannelID}, ping:=Ping, params:=[Param]}) ->
 	util:unicode_os_putenv("args", Param),
-	{respond, {message, ChannelID, io_lib:format("~s~1500s", [Ping, util:safe_os_cmd("bash -c \"$args\"")])}}.
+	{respond, {message, ChannelID, io_lib:format("~s```~1800s```", [Ping, util:safe_os_cmd("bash -c \"$args\"")])}}.
 
 py(#{channel:=#{id:=ChannelID}, ping:=Ping, params:=[Param]}) ->
 	util:unicode_os_putenv("script", Param),
-	{respond, {message, ChannelID, io_lib:format("~s~1500s", [Ping, util:safe_os_cmd("python -c \"$script\"")])}}.
+	{respond, {message, ChannelID, io_lib:format("~s```~1800s```", [Ping, util:safe_os_cmd("python -c \"$script\"")])}}.
 
 bashl(#{channel:=#{id:=ChannelID}, ping:=Ping, params:=[Param]}) ->
 	util:unicode_os_putenv("args", Param),
